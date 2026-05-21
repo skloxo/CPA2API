@@ -84,9 +84,13 @@ func ConvertOpenAIRequestToQwen(model string, rawJSON []byte, stream bool) []byt
 	result = convertImageContentParts(result)
 
 	// Merge system messages into user messages
-	if hasSystemMessages(result) {
+	hasSys := hasSystemMessages(result)
+	if hasSys {
 		result = mergeSystemMessages(result)
 	}
+
+	// Fold tool messages into assistant messages for Qwen compatibility
+	result = foldToolMessages(result)
 
 	return result
 }
@@ -287,6 +291,70 @@ func findOriginalIndex(original []gjson.Result, target gjson.Result) int {
 		}
 	}
 	return 0
+}
+
+// foldToolMessages converts OpenAI tool_calls and role=tool messages into
+// Qwen-compatible format. OpenAI uses structured tool_calls JSON, but Qwen
+// expects tool interactions as text in the message content.
+func foldToolMessages(body []byte) []byte {
+	messages := gjson.GetBytes(body, "messages")
+	if !messages.Exists() || !messages.IsArray() {
+		return body
+	}
+
+	msgs := messages.Array()
+	if len(msgs) == 0 {
+		return body
+	}
+
+	var newMessages []interface{}
+	for i := 0; i < len(msgs); i++ {
+		msg := msgs[i]
+		role := msg.Get("role").String()
+
+		if role == "assistant" && msg.Get("tool_calls").Exists() {
+			// Convert tool_calls to text format
+			var parts []string
+			for _, tc := range msg.Get("tool_calls").Array() {
+				fnName := tc.Get("function.name").String()
+				fnArgs := tc.Get("function.arguments").String()
+				tcID := tc.Get("id").String()
+				parts = append(parts, fmt.Sprintf(`{\n  "tool_calls\n  [call:%s](%s)\n  [id:%s]\n}`, fnName, fnArgs, tcID))
+			}
+			// Build folded assistant message
+			content := msg.Get("content").String()
+			if content == "" {
+				content = "null"
+			}
+			foldedMsg := map[string]interface{}{
+				"role":    "assistant",
+				"content": content + "\n" + strings.Join(parts, "\n"),
+			}
+			newMessages = append(newMessages, foldedMsg)
+
+			// Collect subsequent role=tool messages
+			for i+1 < len(msgs) && msgs[i+1].Get("role").String() == "tool" {
+				i++
+				toolMsg := msgs[i]
+				toolContent := toolMsg.Get("content").String()
+				toolCallID := toolMsg.Get("tool_call_id").String()
+				toolFolded := map[string]interface{}{
+					"role":    "user",
+					"content": fmt.Sprintf(`{\n  "tool_result\n  [call:%s](%s)\n}`, toolCallID, toolContent),
+				}
+				newMessages = append(newMessages, toolFolded)
+			}
+		} else {
+			// Keep message as-is
+			var m map[string]interface{}
+			if err := json.Unmarshal([]byte(msg.Raw), &m); err == nil {
+				newMessages = append(newMessages, m)
+			}
+		}
+	}
+
+	result, _ := sjson.SetBytes(body, "messages", newMessages)
+	return result
 }
 
 // removeSystemMessages removes system messages from the request body.

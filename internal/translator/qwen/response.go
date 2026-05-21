@@ -86,6 +86,34 @@ func ConvertQwenResponseToOpenAI(ctx context.Context, model string, originalRequ
 		responseModel = requestModel.String()
 	}
 
+	// Track think/answer phase transitions for <think></think> tag injection.
+	// Qwen sends reasoning_content during the thinking phase and content during the answer phase.
+	// We inject <think> at the start of thinking and </think> when transitioning to answer.
+	var stateMap map[string]string
+	if param != nil {
+		stateMap, _ = (*param).(map[string]string)
+	}
+	thinkingStarted := stateMap != nil && stateMap["thinking_started"] == "true"
+	thinkingEnded := stateMap != nil && stateMap["thinking_ended"] == "true"
+
+	// Phase 1: First reasoning content → inject <think> opening tag
+	if reasoningContent != "" && !thinkingStarted {
+		thinkingStarted = true
+		if stateMap != nil {
+			stateMap["thinking_started"] = "true"
+		}
+		reasoningContent = "<think>\n\n" + reasoningContent
+	}
+
+	// Phase 2: First answer content (or done) after thinking → inject </think> closing tag
+	if thinkingStarted && !thinkingEnded && (content != "" || status == "done") {
+		thinkingEnded = true
+		if stateMap != nil {
+			stateMap["thinking_ended"] = "true"
+		}
+		content = "\n</think>\n" + content
+	}
+
 	// Build the OpenAI-format chunk
 	chunk := buildOpenAIStreamChunk(chunkID, created, responseModel, content, reasoningContent, status)
 	return [][]byte{chunk}
@@ -130,14 +158,21 @@ func ConvertOpenAIResponseToQwenNonStream(ctx context.Context, model string, ori
 }
 
 // buildOpenAIStreamChunk creates an OpenAI-compatible streaming chunk.
+// Maps Qwen fields to OpenAI format:
+//   - Qwen content → OpenAI delta.content
+//   - Qwen extra.reasoning_content → OpenAI delta.reasoning_content
+// Both fields can be present simultaneously.
 func buildOpenAIStreamChunk(chunkID string, created int64, model, content, reasoningContent, status string) []byte {
-	delta := `{}`
-	if content != "" {
+	var delta string
+	switch {
+	case content != "" && reasoningContent != "":
+		delta = fmt.Sprintf(`{"content":"%s","reasoning_content":"%s"}`, escapeJSON(content), escapeJSON(reasoningContent))
+	case content != "":
 		delta = fmt.Sprintf(`{"content":"%s"}`, escapeJSON(content))
-	} else if reasoningContent != "" {
-		// Map reasoning_content to content for thinking output
-		// TODO: Consider mapping to a dedicated thinking field if OpenAI format supports it
-		delta = fmt.Sprintf(`{"content":"%s"}`, escapeJSON(reasoningContent))
+	case reasoningContent != "":
+		delta = fmt.Sprintf(`{"reasoning_content":"%s"}`, escapeJSON(reasoningContent))
+	default:
+		delta = "{}"
 	}
 
 	finishReason := "null"
