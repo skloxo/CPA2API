@@ -98,9 +98,6 @@ func (a QwenAuthenticator) Login(ctx context.Context, cfg *config.Config, opts *
 		"type":         "qwen",
 		"access_token": result.Token,
 		"email":        email,
-		// NOTE: Password is stored for token refresh. This is a security consideration.
-		// Consider using a more secure credential storage mechanism in production.
-		"password":  password,
 		"timestamp": time.Now().UnixMilli(),
 	}
 	if result.Expired != "" {

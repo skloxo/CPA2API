@@ -402,7 +402,9 @@ func (e *QwenExecutor) resolveChatID(auth *cliproxyauth.Auth) string {
 			}
 		}
 	}
-	return uuid.New().String()
+	newID := uuid.New().String()
+	e.storeChatID(auth, newID)
+	return newID
 }
 
 // storeChatID persists the chat_id back to auth metadata for session reuse.

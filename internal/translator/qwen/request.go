@@ -311,14 +311,11 @@ func removeSystemMessages(body []byte) []byte {
 	return result
 }
 
-// escapeJSON escapes special characters for JSON string values.
+// escapeJSON escapes a string for safe JSON embedding.
+// Uses encoding/json to handle all special characters correctly.
 func escapeJSON(s string) string {
-	s = strings.ReplaceAll(s, "\\", "\\\\")
-	s = strings.ReplaceAll(s, "\"", "\\\"")
-	s = strings.ReplaceAll(s, "\n", "\\n")
-	s = strings.ReplaceAll(s, "\r", "\\r")
-	s = strings.ReplaceAll(s, "\t", "\\t")
-	return s
+	b, _ := json.Marshal(s)
+	return strings.Trim(string(b), "\"")
 }
 
 // convertImageContentParts transforms OpenAI image_url content parts into

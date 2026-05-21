@@ -24,6 +24,29 @@ import (
 	"github.com/tidwall/gjson"
 )
 
+// completionIDKey is used to store a shared completion ID in the param context.
+const completionIDKey = "qwen_completion_id"
+
+// getCompletionID returns a stable completion ID for all chunks in a single response.
+func getCompletionID(param *any) string {
+	if param != nil {
+		if m, ok := (*param).(map[string]string); ok {
+			if id, ok := m[completionIDKey]; ok {
+				return id
+			}
+		}
+	}
+	id := fmt.Sprintf("chatcmpl-qwen-%d", time.Now().UnixNano())
+	if param != nil {
+		if *param == nil {
+			*param = map[string]string{completionIDKey: id}
+		} else if m, ok := (*param).(map[string]string); ok {
+			m[completionIDKey] = id
+		}
+	}
+	return id
+}
+
 // ConvertQwenResponseToOpenAI converts Qwen response data to OpenAI format (streaming).
 // The translator receives parsed Qwen JSON data and converts it to OpenAI chunk format.
 func ConvertQwenResponseToOpenAI(ctx context.Context, model string, originalRequestRawJSON, requestRawJSON, rawJSON []byte, param *any) [][]byte {
@@ -53,7 +76,8 @@ func ConvertQwenResponseToOpenAI(ctx context.Context, model string, originalRequ
 		return nil
 	}
 
-	chunkID := fmt.Sprintf("chatcmpl-qwen-%d", time.Now().UnixNano())
+	// Reuse the same completion ID across all chunks in a single response
+	chunkID := getCompletionID(param)
 	created := time.Now().Unix()
 
 	// Use the model from the request, or fall back to the provided model

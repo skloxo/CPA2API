@@ -13,6 +13,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
 	log "github.com/sirupsen/logrus"
@@ -112,9 +113,13 @@ func (q *QwenAuth) SignIn(ctx context.Context, email, password string) (*QwenAut
 		return nil, fmt.Errorf("qwen: empty token in sign-in response")
 	}
 
-	return &QwenAuthResult{
+	authResult := &QwenAuthResult{
 		Token: result.Token,
-	}, nil
+	}
+	if result.Exp > 0 {
+		authResult.Expired = time.Unix(result.Exp, 0).UTC().Format(time.RFC3339)
+	}
+	return authResult, nil
 }
 
 // sha256Hash computes the SHA256 hex digest of the input string.
