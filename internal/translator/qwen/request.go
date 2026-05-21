@@ -16,36 +16,74 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
 
 // qwenModelMapping maps OpenAI model names to Qwen model names.
 var qwenModelMapping = map[string]string{
-	"qwen3-max":          "qwen3-max",
-	"qwen3-plus":         "qwen3-plus",
-	"qwen3-turbo":        "qwen3-turbo",
-	"qwen-max":           "qwen-max",
-	"qwen-plus":          "qwen-plus",
-	"qwen-turbo":         "qwen-turbo",
-	"qwq-plus":           "qwq-plus",
-	"qwq-max":            "qwq-max",
-	"qwen-long":          "qwen-long",
+	// Qwen 3.6 series
+	"qwen3.6-plus":          "qwen3.6-plus",
+	"qwen3.6-max-preview":   "qwen3.6-max-preview",
+	"qwen3.6-27b":           "qwen3.6-27b",
+	"qwen3.6-35b-a3b":       "qwen3.6-35b-a3b",
+	"qwen3.6-plus-preview":  "qwen3.6-plus-preview",
+	// Qwen 3.7 series
+	"qwen3.7-max":           "qwen3.7-max",
+	// Qwen 3.5 series
+	"qwen3.5-plus":           "qwen3.5-plus",
+	"qwen3.5-flash":          "qwen3.5-flash",
+	"qwen3.5-omni-plus":      "qwen3.5-omni-plus",
+	"qwen3.5-omni-flash":     "qwen3.5-omni-flash",
+	"qwen3.5-max-2026-03-08": "qwen3.5-max-2026-03-08",
+	"qwen3.5-397b-a17b":      "qwen3.5-397b-a17b",
+	"qwen3.5-122b-a10b":      "qwen3.5-122b-a10b",
+	"qwen3.5-27b":            "qwen3.5-27b",
+	"qwen3.5-35b-a3b":        "qwen3.5-35b-a3b",
+	// Qwen 3 series
+	"qwen3-max":               "qwen3-max",
+	"qwen3-plus":              "qwen3-plus",
+	"qwen3-turbo":             "qwen3-turbo",
+	"qwen3-coder-plus":        "qwen3-coder-plus",
+	"qwen3-vl-plus":           "qwen3-vl-plus",
+	"qwen3-max-2026-01-23":    "qwen3-max-2026-01-23",
+	"qwen3-omni-flash-2025-12-01": "qwen3-omni-flash-2025-12-01",
+	// Qwen latest / classic
+	"qwen-max-latest":         "qwen-max-latest",
+	"qwen-max":                "qwen-max",
+	"qwen-plus":               "qwen-plus",
+	"qwen-plus-2025-07-28":    "qwen-plus-2025-07-28",
+	"qwen-turbo":              "qwen-turbo",
+	// Beta series
+	"qwen-latest-series-invite-beta-v24": "qwen-latest-series-invite-beta-v24",
+	"qwen-latest-series-invite-beta-v16": "qwen-latest-series-invite-beta-v16",
+	// Reasoning models
+	"qwq-plus":  "qwq-plus",
+	"qwq-max":   "qwq-max",
+	// Multimodal
 	"qwen-vl-max":        "qwen-vl-max",
 	"qwen-vl-plus":       "qwen-vl-plus",
 	"qwen-audio-turbo":   "qwen-audio-turbo",
+	// Coder
 	"qwen-coder-plus":    "qwen-coder-plus",
 	"qwen-coder-turbo":   "qwen-coder-turbo",
+	// Long-context
+	"qwen-long":          "qwen-long",
+	// Legacy 2.5 series
 	"qwen2.5-max":        "qwen2.5-max",
 	"qwen2.5-plus":       "qwen2.5-plus",
 	"qwen2.5-turbo":      "qwen2.5-turbo",
 	"qwen2.5-coder-plus": "qwen2.5-coder-plus",
 	// Long-context models routed via CLI endpoint
-	"qwen3-max:long":  "qwen3-max",
-	"qwen-max:long":   "qwen-max",
-	"qwen-plus:long":  "qwen-plus",
-	"qwen-long:long":  "qwen-long",
+	"qwen3-max:long":          "qwen3-max",
+	"qwen-max:long":           "qwen-max",
+	"qwen-plus:long":          "qwen-plus",
+	"qwen-long:long":          "qwen-long",
+	"qwen-max-latest:long":    "qwen-max-latest",
+	"qwen3.7-max:long":        "qwen3.7-max",
 }
 
 // reverseQwenModelMapping maps Qwen model names back to OpenAI model names.
@@ -58,74 +96,220 @@ func init() {
 	}
 }
 
-// ConvertOpenAIRequestToQwen translates an OpenAI-format request to Qwen format.
-// Since Qwen is OpenAI-compatible, the main transformations are:
-//   - Model name mapping
-//   - Image content part conversion for VLM models
-//   - System message merging into user messages
+// ConvertOpenAIRequestToQwen translates an OpenAI-format request to Qwen native API format.
+// Qwen's /api/v2/chat/completions endpoint requires a specific message structure with:
+//   - version, incremental_output, chat_mode, parent_id top-level fields
+//   - Messages with fid, parentId, childrenIds, user_action, files, timestamp, models,
+//     chat_type, feature_config, extra, sub_chat_type
+//   - System messages merged into user messages
+//   - chat_id is NOT set here (injected by executor after translation)
 func ConvertOpenAIRequestToQwen(model string, rawJSON []byte, stream bool) []byte {
 	if len(rawJSON) == 0 || !gjson.ValidBytes(rawJSON) {
 		return rawJSON
 	}
 
-	result := rawJSON
-
-	// Map model name
 	mappedModel := mapModelToQwen(model)
-	if mappedModel != model {
-		var err error
-		result, err = sjson.SetBytes(result, "model", mappedModel)
-		if err != nil {
-			return rawJSON
+	ts := time.Now().UnixMilli()
+
+	// --- Build top-level Qwen request ---
+	qwenReq := map[string]interface{}{
+		"stream":             stream,
+		"version":            "2.1",
+		"incremental_output": true,
+		"chat_mode":          "normal",
+		"model":              mappedModel,
+		"parent_id":          nil,
+		"timestamp":          ts,
+	}
+
+	// Preserve chat_id if already present in the body (executor injects it later)
+	if chatID := gjson.GetBytes(rawJSON, "chat_id").String(); chatID != "" {
+		qwenReq["chat_id"] = chatID
+	}
+
+	// Preserve temperature, top_p, max_tokens if present
+	if temp := gjson.GetBytes(rawJSON, "temperature"); temp.Exists() {
+		qwenReq["temperature"] = temp.Float()
+	}
+	if topP := gjson.GetBytes(rawJSON, "top_p"); topP.Exists() {
+		qwenReq["top_p"] = topP.Float()
+	}
+	if maxTok := gjson.GetBytes(rawJSON, "max_tokens"); maxTok.Exists() {
+		qwenReq["max_tokens"] = maxTok.Int()
+	}
+
+	// --- Extract system messages and merge into user content ---
+	var systemParts []string
+	openaiMessages := gjson.GetBytes(rawJSON, "messages")
+	if !openaiMessages.Exists() || !openaiMessages.IsArray() {
+		return rawJSON
+	}
+
+	for _, msg := range openaiMessages.Array() {
+		if msg.Get("role").String() == "system" {
+			content := extractTextContent(msg.Get("content"))
+			if content != "" {
+				systemParts = append(systemParts, content)
+			}
 		}
 	}
 
-	// Convert image content parts for VLM support
-	result = convertImageContentParts(result)
+	// --- Build Qwen messages array ---
+	var qwenMessages []map[string]interface{}
+	for _, msg := range openaiMessages.Array() {
+		role := msg.Get("role").String()
+		if role == "system" {
+			continue // already extracted
+		}
 
-	// Merge system messages into user messages
-	hasSys := hasSystemMessages(result)
-	if hasSys {
-		result = mergeSystemMessages(result)
+		content := extractTextContent(msg.Get("content"))
+
+		// Prepend system instructions to the first user message
+		if role == "user" && len(systemParts) > 0 {
+			sysText := strings.Join(systemParts, "\n\n")
+			if content != "" {
+				content = sysText + "\n\n" + content
+			} else {
+				content = sysText
+			}
+			systemParts = nil // only merge once
+		}
+
+		childID := uuid.New().String()
+		qwenMsg := map[string]interface{}{
+			"fid":          uuid.New().String(),
+			"parentId":      nil,
+			"childrenIds":   []string{childID},
+			"role":          role,
+			"content":       content,
+			"user_action":   "chat",
+			"files":         []interface{}{},
+			"timestamp":     ts,
+			"models":        []string{mappedModel},
+			"chat_type":     "t2t",
+			"feature_config": buildFeatureConfig(),
+			"extra":         map[string]interface{}{"meta": map[string]interface{}{"subChatType": "t2t"}},
+			"sub_chat_type": "t2t",
+			"parent_id":     nil,
+		}
+		qwenMessages = append(qwenMessages, qwenMsg)
 	}
 
-	// Fold tool messages into assistant messages for Qwen compatibility
-	result = foldToolMessages(result)
+	// If no user message was found but we had system content, create a user message
+	if len(systemParts) > 0 && len(qwenMessages) == 0 {
+		childID := uuid.New().String()
+		qwenMsg := map[string]interface{}{
+			"fid":          uuid.New().String(),
+			"parentId":      nil,
+			"childrenIds":   []string{childID},
+			"role":          "user",
+			"content":       strings.Join(systemParts, "\n\n"),
+			"user_action":   "chat",
+			"files":         []interface{}{},
+			"timestamp":     ts,
+			"models":        []string{mappedModel},
+			"chat_type":     "t2t",
+			"feature_config": buildFeatureConfig(),
+			"extra":         map[string]interface{}{"meta": map[string]interface{}{"subChatType": "t2t"}},
+			"sub_chat_type": "t2t",
+			"parent_id":     nil,
+		}
+		qwenMessages = append([]map[string]interface{}{qwenMsg}, qwenMessages...)
+	}
+
+	qwenReq["messages"] = qwenMessages
+
+	out, err := json.Marshal(qwenReq)
+	if err != nil {
+		return rawJSON
+	}
+	return out
+}
+
+// buildFeatureConfig returns the standard Qwen feature_config for chat requests.
+func buildFeatureConfig() map[string]interface{} {
+	return map[string]interface{}{
+		"thinking_enabled":    true,
+		"output_schema":       "phase",
+		"research_mode":       "normal",
+		"auto_thinking":       true,
+		"thinking_mode":       "Auto",
+		"thinking_format":     "summary",
+		"auto_search":         false,
+		"code_interpreter":    false,
+		"plugins_enabled":     false,
+		"function_calling":    false,
+		"enable_tools":        false,
+		"enable_function_call": false,
+		"tool_choice":         "none",
+	}
+}
+
+// ConvertOpenAIRequestToQwenWithAuth translates an OpenAI-format request to Qwen native format,
+// uploading base64 images to Qwen OSS when an auth token is provided.
+// This uses the same native format conversion as ConvertOpenAIRequestToQwen,
+// but additionally handles base64 image upload to Qwen OSS.
+func ConvertOpenAIRequestToQwenWithAuth(model string, rawJSON []byte, stream bool, token string) []byte {
+	// First do the standard OpenAI→Qwen native conversion
+	result := ConvertOpenAIRequestToQwen(model, rawJSON, stream)
+	if bytes.Equal(result, rawJSON) {
+		return rawJSON // validation failed, return as-is
+	}
+
+	// If we have a token, handle base64 image uploads
+	if strings.TrimSpace(token) != "" {
+		result = convertQwenNativeImageUpload(result, token)
+	}
 
 	return result
 }
 
-// ConvertOpenAIRequestToQwenWithAuth translates an OpenAI-format request to Qwen format,
-// uploading base64 images to Qwen OSS when an auth token is provided.
-func ConvertOpenAIRequestToQwenWithAuth(model string, rawJSON []byte, stream bool, token string) []byte {
-	if len(rawJSON) == 0 || !gjson.ValidBytes(rawJSON) {
-		return rawJSON
+// convertQwenNativeImageUpload handles base64 image upload in Qwen native format.
+// In the native format, files are in message.files array rather than message.content.
+func convertQwenNativeImageUpload(body []byte, token string) []byte {
+	messages := gjson.GetBytes(body, "messages")
+	if !messages.Exists() || !messages.IsArray() {
+		return body
 	}
 
-	result := rawJSON
+	for msgIdx, msg := range messages.Array() {
+		files := msg.Get("files")
+		if !files.Exists() || !files.IsArray() {
+			continue
+		}
 
-	mappedModel := mapModelToQwen(model)
-	if mappedModel != model {
-		var err error
-		result, err = sjson.SetBytes(result, "model", mappedModel)
-		if err != nil {
-			return rawJSON
+		var newFiles []interface{}
+		changed := false
+		for _, f := range files.Array() {
+			url := f.Get("url").String()
+			if isDataURI(url) {
+				uploadedURL, err := uploadBase64ToQwenOSS(url, token)
+				if err == nil && uploadedURL != "" {
+					changed = true
+					fMap := make(map[string]interface{})
+					f.ForEach(func(k, v gjson.Result) bool {
+						fMap[k.String()] = v.Value()
+						return true
+					})
+					fMap["url"] = uploadedURL
+					newFiles = append(newFiles, fMap)
+					continue
+				}
+			}
+			newFiles = append(newFiles, f.Value())
+		}
+
+		if changed {
+			path := fmt.Sprintf("messages.%d.files", msgIdx)
+			var err error
+			body, err = sjson.SetBytes(body, path, newFiles)
+			if err != nil {
+				return body
+			}
 		}
 	}
 
-	// Convert image content parts, uploading base64 to OSS if token available
-	if strings.TrimSpace(token) != "" {
-		result = convertImageContentPartsWithUpload(result, token)
-	} else {
-		result = convertImageContentParts(result)
-	}
-
-	// Merge system messages into user messages
-	if hasSystemMessages(result) {
-		result = mergeSystemMessages(result)
-	}
-
-	return result
+	return body
 }
 
 // ConvertQwenRequestToOpenAI translates a Qwen-format request to OpenAI format.
