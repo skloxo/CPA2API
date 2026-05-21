@@ -27,6 +27,7 @@ type staticModelsJSON struct {
 	Kimi        []*ModelInfo `json:"kimi"`
 	Antigravity []*ModelInfo `json:"antigravity"`
 	XAI         []*ModelInfo `json:"xai"`
+	Qwen        []*ModelInfo `json:"qwen"`
 }
 
 // GetClaudeModels returns the standard Claude model definitions.
@@ -87,6 +88,11 @@ func GetAntigravityModels() []*ModelInfo {
 // GetXAIModels returns the standard xAI Grok model definitions.
 func GetXAIModels() []*ModelInfo {
 	return WithXAIBuiltins(cloneModelInfos(getModels().XAI))
+}
+
+// GetQwenModels returns the standard Qwen model definitions.
+func GetQwenModels() []*ModelInfo {
+	return cloneModelInfos(getModels().Qwen)
 }
 
 // WithCodexBuiltins injects hard-coded Codex-only model definitions that should
