@@ -3,11 +3,18 @@
 // Key transformations:
 //   - Model name mapping between OpenAI and Qwen identifiers
 //   - System message merging into user messages for Qwen compatibility
+//   - VLM image content part handling with optional base64→OSS upload
 //   - Pass-through for most other fields since Qwen is OpenAI-compatible
 package qwen
 
 import (
+	"bytes"
+	"context"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"strings"
 
 	"github.com/tidwall/gjson"
@@ -34,6 +41,11 @@ var qwenModelMapping = map[string]string{
 	"qwen2.5-plus":       "qwen2.5-plus",
 	"qwen2.5-turbo":      "qwen2.5-turbo",
 	"qwen2.5-coder-plus": "qwen2.5-coder-plus",
+	// Long-context models routed via CLI endpoint
+	"qwen3-max:long":  "qwen3-max",
+	"qwen-max:long":   "qwen-max",
+	"qwen-plus:long":  "qwen-plus",
+	"qwen-long:long":  "qwen-long",
 }
 
 // reverseQwenModelMapping maps Qwen model names back to OpenAI model names.
@@ -49,6 +61,7 @@ func init() {
 // ConvertOpenAIRequestToQwen translates an OpenAI-format request to Qwen format.
 // Since Qwen is OpenAI-compatible, the main transformations are:
 //   - Model name mapping
+//   - Image content part conversion for VLM models
 //   - System message merging into user messages
 func ConvertOpenAIRequestToQwen(model string, rawJSON []byte, stream bool) []byte {
 	if len(rawJSON) == 0 || !gjson.ValidBytes(rawJSON) {
@@ -65,6 +78,42 @@ func ConvertOpenAIRequestToQwen(model string, rawJSON []byte, stream bool) []byt
 		if err != nil {
 			return rawJSON
 		}
+	}
+
+	// Convert image content parts for VLM support
+	result = convertImageContentParts(result)
+
+	// Merge system messages into user messages
+	if hasSystemMessages(result) {
+		result = mergeSystemMessages(result)
+	}
+
+	return result
+}
+
+// ConvertOpenAIRequestToQwenWithAuth translates an OpenAI-format request to Qwen format,
+// uploading base64 images to Qwen OSS when an auth token is provided.
+func ConvertOpenAIRequestToQwenWithAuth(model string, rawJSON []byte, stream bool, token string) []byte {
+	if len(rawJSON) == 0 || !gjson.ValidBytes(rawJSON) {
+		return rawJSON
+	}
+
+	result := rawJSON
+
+	mappedModel := mapModelToQwen(model)
+	if mappedModel != model {
+		var err error
+		result, err = sjson.SetBytes(result, "model", mappedModel)
+		if err != nil {
+			return rawJSON
+		}
+	}
+
+	// Convert image content parts, uploading base64 to OSS if token available
+	if strings.TrimSpace(token) != "" {
+		result = convertImageContentPartsWithUpload(result, token)
+	} else {
+		result = convertImageContentParts(result)
 	}
 
 	// Merge system messages into user messages
@@ -114,6 +163,13 @@ func mapModelToOpenAI(model string) string {
 		return mapped
 	}
 	return model
+}
+
+// IsLongContextModel reports whether the model should be routed to the CLI long-context endpoint.
+func IsLongContextModel(model string) bool {
+	model = strings.TrimSpace(model)
+	lower := strings.ToLower(model)
+	return strings.HasSuffix(lower, ":long") || lower == "qwen-long"
 }
 
 // hasSystemMessages checks if the request contains system messages.
@@ -263,4 +319,247 @@ func escapeJSON(s string) string {
 	s = strings.ReplaceAll(s, "\r", "\\r")
 	s = strings.ReplaceAll(s, "\t", "\\t")
 	return s
+}
+
+// convertImageContentParts transforms OpenAI image_url content parts into
+// Qwen-compatible format. Both URL and base64 data URI images pass through
+// since Qwen's OpenAI-compatible endpoint accepts both formats.
+func convertImageContentParts(body []byte) []byte {
+	messages := gjson.GetBytes(body, "messages")
+	if !messages.Exists() || !messages.IsArray() {
+		return body
+	}
+
+	for msgIdx, msg := range messages.Array() {
+		content := msg.Get("content")
+		if !content.Exists() || !content.IsArray() {
+			continue
+		}
+
+		var newParts []string
+		changed := false
+		for _, part := range content.Array() {
+			partType := part.Get("type").String()
+			if partType == "image_url" {
+				imageURL := part.Get("image_url.url").String()
+				if imageURL != "" {
+					changed = true
+					newParts = append(newParts, fmt.Sprintf(
+						`{"type":"image_url","image_url":{"url":"%s"}}`,
+						escapeJSON(imageURL),
+					))
+					continue
+				}
+			}
+			newParts = append(newParts, part.Raw)
+		}
+
+		if changed {
+			path := fmt.Sprintf("messages.%d.content", msgIdx)
+			rawArr := "[" + strings.Join(newParts, ",") + "]"
+			var err error
+			body, err = sjson.SetRawBytes(body, path, []byte(rawArr))
+			if err != nil {
+				return body
+			}
+		}
+	}
+
+	return body
+}
+
+// convertImageContentPartsWithUpload handles image conversion with base64→OSS upload.
+// When a token is provided, base64 data URIs are uploaded to Qwen's OSS for better reliability.
+func convertImageContentPartsWithUpload(body []byte, token string) []byte {
+	messages := gjson.GetBytes(body, "messages")
+	if !messages.Exists() || !messages.IsArray() {
+		return body
+	}
+
+	for msgIdx, msg := range messages.Array() {
+		content := msg.Get("content")
+		if !content.Exists() || !content.IsArray() {
+			continue
+		}
+
+		var newParts []string
+		changed := false
+		for _, part := range content.Array() {
+			partType := part.Get("type").String()
+			if partType != "image_url" {
+				newParts = append(newParts, part.Raw)
+				continue
+			}
+
+			imageURL := part.Get("image_url.url").String()
+			if imageURL == "" {
+				newParts = append(newParts, part.Raw)
+				continue
+			}
+
+			if isDataURI(imageURL) {
+				// Try uploading base64 to Qwen OSS
+				uploadedURL, err := uploadBase64ToQwenOSS(imageURL, token)
+				if err == nil && uploadedURL != "" {
+					changed = true
+					newParts = append(newParts, fmt.Sprintf(
+						`{"type":"image_url","image_url":{"url":"%s"}}`,
+						escapeJSON(uploadedURL),
+					))
+					continue
+				}
+				// Upload failed; pass through as-is
+			}
+
+			newParts = append(newParts, part.Raw)
+		}
+
+		if changed {
+			path := fmt.Sprintf("messages.%d.content", msgIdx)
+			rawArr := "[" + strings.Join(newParts, ",") + "]"
+			var err error
+			body, err = sjson.SetRawBytes(body, path, []byte(rawArr))
+			if err != nil {
+				return body
+			}
+		}
+	}
+
+	return body
+}
+
+// isDataURI checks if a string is a base64 data URI.
+func isDataURI(s string) bool {
+	return strings.HasPrefix(s, "data:") && strings.Contains(s, ";base64,")
+}
+
+// parseDataURI extracts the MIME type and base64 data from a data URI.
+func parseDataURI(dataURI string) (mimeType string, data []byte, err error) {
+	idx := strings.Index(dataURI, ";base64,")
+	if idx < 0 {
+		return "", nil, fmt.Errorf("invalid data URI format")
+	}
+	mimeType = dataURI[5:idx]
+	b64Data := dataURI[idx+8:]
+	data, err = base64.StdEncoding.DecodeString(b64Data)
+	if err != nil {
+		return "", nil, fmt.Errorf("base64 decode failed: %w", err)
+	}
+	return mimeType, data, nil
+}
+
+// mimeToFileExt extracts a simple file extension from a MIME type.
+func mimeToFileExt(mime string) string {
+	switch {
+	case strings.Contains(mime, "png"):
+		return "png"
+	case strings.Contains(mime, "jpeg"), strings.Contains(mime, "jpg"):
+		return "jpg"
+	case strings.Contains(mime, "gif"):
+		return "gif"
+	case strings.Contains(mime, "webp"):
+		return "webp"
+	default:
+		return "png"
+	}
+}
+
+// qwenOssStsResponse represents the STS token response from Qwen's file upload API.
+type qwenOssStsResponse struct {
+	Success bool `json:"success"`
+	Data    struct {
+		Credentials struct {
+			AccessKeyID     string `json:"AccessKeyId"`
+			AccessKeySecret string `json:"AccessKeySecret"`
+			SecurityToken   string `json:"SecurityToken"`
+		} `json:"credentials"`
+		FileInfo struct {
+			URL string `json:"url"`
+			ID  string `json:"id"`
+		} `json:"file_info"`
+	} `json:"data"`
+}
+
+// uploadBase64ToQwenOSS uploads a base64 data URI to Qwen's OSS and returns the URL.
+func uploadBase64ToQwenOSS(dataURI string, token string) (string, error) {
+	mimeType, data, err := parseDataURI(dataURI)
+	if err != nil {
+		return "", err
+	}
+
+	fileExt := mimeToFileExt(mimeType)
+	filename := fmt.Sprintf("upload.%s", fileExt)
+	filesize := len(data)
+
+	// Step 1: Get STS token
+	stsURL := "https://chat.qwen.ai/api/v1/files/upload"
+	stsPayload := map[string]any{
+		"filename":    filename,
+		"filesize":    filesize,
+		"filetype":    "image",
+		"is_snapshot": false,
+		"biz_type":    "qwen",
+		"space_type":  "qwen",
+	}
+	stsBody, _ := json.Marshal(stsPayload)
+
+	stsReq, err := http.NewRequestWithContext(context.Background(), http.MethodPost, stsURL, bytes.NewReader(stsBody))
+	if err != nil {
+		return "", err
+	}
+	stsReq.Header.Set("Content-Type", "application/json")
+	stsReq.Header.Set("Authorization", "Bearer "+token)
+
+	stsResp, err := (&http.Client{}).Do(stsReq)
+	if err != nil {
+		return "", fmt.Errorf("sts request failed: %w", err)
+	}
+	defer stsResp.Body.Close()
+
+	stsRespBody, err := io.ReadAll(stsResp.Body)
+	if err != nil {
+		return "", fmt.Errorf("sts read failed: %w", err)
+	}
+
+	var stsResult qwenOssStsResponse
+	if err := json.Unmarshal(stsRespBody, &stsResult); err != nil {
+		return "", fmt.Errorf("sts parse failed: %w", err)
+	}
+	if !stsResult.Success || stsResult.Data.FileInfo.URL == "" {
+		return "", fmt.Errorf("sts returned no file URL")
+	}
+
+	// Step 2: Upload to OSS with STS credentials
+	cred := stsResult.Data.Credentials
+	ossURL := fmt.Sprintf("https://qwen-chat-cn-hangzhou.oss-cn-hangzhou.aliyuncs.com/?x-oss-security-token=%s",
+		cred.SecurityToken)
+
+	ossReq, err := http.NewRequestWithContext(context.Background(), http.MethodPut, ossURL, bytes.NewReader(data))
+	if err != nil {
+		return "", err
+	}
+	ossReq.Header.Set("Content-Type", mimeType)
+	ossReq.Header.Set("Authorization", fmt.Sprintf("OSS %s:%s", cred.AccessKeyID, cred.AccessKeySecret))
+
+	ossResp, err := (&http.Client{}).Do(ossReq)
+	if err != nil {
+		return "", fmt.Errorf("oss upload failed: %w", err)
+	}
+	defer ossResp.Body.Close()
+	io.Copy(io.Discard, ossResp.Body)
+
+	if ossResp.StatusCode < 200 || ossResp.StatusCode >= 300 {
+		return "", fmt.Errorf("oss upload returned status %d", ossResp.StatusCode)
+	}
+
+	return stsResult.Data.FileInfo.URL, nil
+}
+
+// GetQwenModelMapping returns a copy of the Qwen model mapping for external use.
+func GetQwenModelMapping() map[string]string {
+	out := make(map[string]string, len(qwenModelMapping))
+	for k, v := range qwenModelMapping {
+		out[k] = v
+	}
+	return out
 }

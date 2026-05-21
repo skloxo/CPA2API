@@ -8,9 +8,14 @@
 // Qwen API endpoints:
 //   - Base URL: https://chat.qwen.ai
 //   - Chat Completions: POST /api/v2/chat/completions?chat_id={uuid}
+//   - Long Context (CLI): https://portal.qwen.ai
 //
-// The executor uses the translator module for request/response format conversion
-// and the proxy-aware HTTP client for network transport.
+// Features:
+//   - VLM image support with base64→OSS upload
+//   - Session affinity via chat_id reuse per API key
+//   - Streaming usage statistics reporting
+//   - Anti-detection browser headers and ssxmod cookies
+//   - Long-context routing to CLI endpoint
 package executor
 
 import (
@@ -27,6 +32,7 @@ import (
 	qwenauth "github.com/router-for-me/CLIProxyAPI/v7/internal/auth/qwen"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/runtime/executor/helps"
+	qwenTranslator "github.com/router-for-me/CLIProxyAPI/v7/internal/translator/qwen"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/thinking"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/util"
 	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
@@ -40,27 +46,33 @@ import (
 // QwenExecutor is a stateless executor for Qwen API using chat completions.
 type QwenExecutor struct {
 	ClaudeExecutor
-	cfg *config.Config
+	cfg       *config.Config
+	modelDisc *QwenModelDiscovery
 }
 
 // NewQwenExecutor creates a new Qwen executor.
-func NewQwenExecutor(cfg *config.Config) *QwenExecutor { return &QwenExecutor{cfg: cfg} }
+func NewQwenExecutor(cfg *config.Config) *QwenExecutor {
+	e := &QwenExecutor{
+		cfg:       cfg,
+		modelDisc: NewQwenModelDiscovery(cfg),
+	}
+	return e
+}
 
 // Identifier returns the executor identifier.
 func (e *QwenExecutor) Identifier() string { return "qwen" }
 
 // PrepareRequest injects Qwen credentials (Bearer token + Cookie) into the outgoing HTTP request.
+// It also applies anti-detection headers and ssxmod cookies.
 func (e *QwenExecutor) PrepareRequest(req *http.Request, auth *cliproxyauth.Auth) error {
 	if req == nil {
 		return nil
 	}
 	token, cookie := qwenCreds(auth)
-	if strings.TrimSpace(token) != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
-	}
-	if strings.TrimSpace(cookie) != "" {
-		req.Header.Set("Cookie", cookie)
-	}
+
+	// Apply anti-detection headers and ssxmod cookies
+	qwenauth.ApplyAllQwenHeaders(req, token, cookie, false)
+
 	var attrs map[string]string
 	if auth != nil {
 		attrs = auth.Attributes
@@ -112,8 +124,16 @@ func (e *QwenExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, req
 	requestPath := helps.PayloadRequestPath(opts)
 	body = helps.ApplyPayloadConfigWithRequest(e.cfg, baseModel, to.String(), from.String(), "", body, originalTranslated, requestedModel, requestPath, opts.Headers)
 
-	chatID := uuid.New().String()
-	url := qwenauth.QwenAPIBaseURL + "/api/v2/chat/completions?chat_id=" + chatID
+	// Determine endpoint: long-context models use CLI endpoint
+	apiBase := qwenauth.QwenAPIBaseURL
+	isLongCtx := qwenTranslator.IsLongContextModel(req.Model)
+	if isLongCtx {
+		apiBase = qwenauth.QwenCLIEndpoint
+	}
+
+	// Session affinity: reuse chat_id from auth metadata if available
+	chatID := e.resolveChatID(auth)
+	url := apiBase + "/api/v2/chat/completions?chat_id=" + chatID
 
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
@@ -121,7 +141,9 @@ func (e *QwenExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, req
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Accept", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+token)
+
+	// Apply all anti-detection headers
+	qwenauth.ApplyAllQwenHeaders(httpReq, token, qwenCookie(auth), false)
 
 	var attrs map[string]string
 	if auth != nil {
@@ -211,8 +233,16 @@ func (e *QwenExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Aut
 	requestPath := helps.PayloadRequestPath(opts)
 	body = helps.ApplyPayloadConfigWithRequest(e.cfg, baseModel, to.String(), from.String(), "", body, originalTranslated, requestedModel, requestPath, opts.Headers)
 
-	chatID := uuid.New().String()
-	url := qwenauth.QwenAPIBaseURL + "/api/v2/chat/completions?chat_id=" + chatID
+	// Determine endpoint
+	apiBase := qwenauth.QwenAPIBaseURL
+	isLongCtx := qwenTranslator.IsLongContextModel(req.Model)
+	if isLongCtx {
+		apiBase = qwenauth.QwenCLIEndpoint
+	}
+
+	// Session affinity: reuse chat_id
+	chatID := e.resolveChatID(auth)
+	url := apiBase + "/api/v2/chat/completions?chat_id=" + chatID
 
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
@@ -220,7 +250,9 @@ func (e *QwenExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Aut
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Accept", "text/event-stream")
-	httpReq.Header.Set("Authorization", "Bearer "+token)
+
+	// Apply all anti-detection headers
+	qwenauth.ApplyAllQwenHeaders(httpReq, token, qwenCookie(auth), true)
 
 	var attrs map[string]string
 	if auth != nil {
@@ -274,6 +306,7 @@ func (e *QwenExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Aut
 		}()
 
 		currentEvent := ""
+		var param any
 		scanner := bufio.NewScanner(httpResp.Body)
 		scanner.Buffer(nil, 1_048_576) // 1MB
 
@@ -300,6 +333,11 @@ func (e *QwenExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Aut
 				continue
 			}
 
+			// Parse streaming usage data
+			if detail, ok := helps.ParseOpenAIStreamUsage([]byte("data: " + jsonData)); ok {
+				reporter.Publish(ctx, detail)
+			}
+
 			// Handle complete event - emit finish chunk
 			if currentEvent == "complete" {
 				finishChunk := buildQwenFinishChunk(baseModel)
@@ -313,7 +351,7 @@ func (e *QwenExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Aut
 			}
 
 			// Handle message event (or default) - convert to OpenAI chunk
-			chunks := sdktranslator.TranslateStream(ctx, to, from, req.Model, opts.OriginalRequest, body, []byte(jsonData), nil)
+			chunks := sdktranslator.TranslateStream(ctx, to, from, req.Model, opts.OriginalRequest, body, []byte(jsonData), &param)
 			for i := range chunks {
 				helps.AppendAPIResponseChunk(ctx, e.cfg, chunks[i])
 				select {
@@ -326,7 +364,8 @@ func (e *QwenExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Aut
 		}
 
 		// Emit final [DONE] marker
-		doneChunks := sdktranslator.TranslateStream(ctx, to, from, req.Model, opts.OriginalRequest, body, []byte("[DONE]"), nil)
+		reporter.EnsurePublished(ctx)
+		doneChunks := sdktranslator.TranslateStream(ctx, to, from, req.Model, opts.OriginalRequest, body, []byte("[DONE]"), &param)
 		for i := range doneChunks {
 			select {
 			case out <- cliproxyexecutor.StreamChunk{Payload: doneChunks[i]}:
@@ -347,14 +386,42 @@ func (e *QwenExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Aut
 	return &cliproxyexecutor.StreamResult{Headers: httpResp.Header.Clone(), Chunks: out}, nil
 }
 
+// resolveChatID returns a stable chat_id for session affinity.
+// If auth metadata contains a stored chat_id, it is reused; otherwise a new UUID is generated
+// and optionally persisted back to metadata for subsequent requests.
+func (e *QwenExecutor) resolveChatID(auth *cliproxyauth.Auth) string {
+	if auth != nil && auth.Metadata != nil {
+		if v, ok := auth.Metadata["chat_id"].(string); ok && strings.TrimSpace(v) != "" {
+			return v
+		}
+		// Also check for API-key-scoped session cache
+		if apiKey, ok := auth.Metadata["api_key"].(string); ok && strings.TrimSpace(apiKey) != "" {
+			cached := helps.CachedSessionID(apiKey)
+			if cached != "" {
+				return cached
+			}
+		}
+	}
+	return uuid.New().String()
+}
+
+// storeChatID persists the chat_id back to auth metadata for session reuse.
+func (e *QwenExecutor) storeChatID(auth *cliproxyauth.Auth, chatID string) {
+	if auth == nil {
+		return
+	}
+	if auth.Metadata == nil {
+		auth.Metadata = make(map[string]any)
+	}
+	auth.Metadata["chat_id"] = chatID
+}
+
 // CountTokens estimates token count for Qwen requests.
 func (e *QwenExecutor) CountTokens(ctx context.Context, auth *cliproxyauth.Auth, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (cliproxyexecutor.Response, error) {
 	return e.ClaudeExecutor.CountTokens(ctx, auth, req, opts)
 }
 
 // Refresh refreshes the Qwen token by re-authenticating with stored credentials.
-// Since Qwen uses JWT tokens without refresh tokens, the only way to refresh
-// is to re-login with the original email and password.
 func (e *QwenExecutor) Refresh(ctx context.Context, auth *cliproxyauth.Auth) (*cliproxyauth.Auth, error) {
 	log.Debugf("qwen executor: refresh called")
 	if refreshed, handled, err := helps.RefreshAuthViaHome(ctx, e.cfg, auth); handled {
@@ -364,7 +431,6 @@ func (e *QwenExecutor) Refresh(ctx context.Context, auth *cliproxyauth.Auth) (*c
 		return nil, fmt.Errorf("qwen executor: auth is nil")
 	}
 
-	// Extract email and password from metadata for re-authentication
 	var email, password string
 	if auth.Metadata != nil {
 		if v, ok := auth.Metadata["email"].(string); ok {
@@ -378,14 +444,12 @@ func (e *QwenExecutor) Refresh(ctx context.Context, auth *cliproxyauth.Auth) (*c
 		return auth, fmt.Errorf("qwen executor: cannot refresh without email and password in metadata")
 	}
 
-	// Re-authenticate with Qwen
 	qwenAuthSvc := qwenauth.NewQwenAuth(e.cfg)
 	result, err := qwenAuthSvc.SignIn(ctx, email, password)
 	if err != nil {
 		return nil, fmt.Errorf("qwen executor: refresh failed: %w", err)
 	}
 
-	// Update auth metadata with new token
 	if auth.Metadata == nil {
 		auth.Metadata = make(map[string]any)
 	}
@@ -397,13 +461,15 @@ func (e *QwenExecutor) Refresh(ctx context.Context, auth *cliproxyauth.Auth) (*c
 	now := time.Now().Format(time.RFC3339)
 	auth.Metadata["last_refresh"] = now
 
-	// Update storage if available
 	if storage, ok := auth.Storage.(*qwenauth.QwenTokenStorage); ok {
 		storage.AccessToken = result.Token
 		if result.Expired != "" {
 			storage.Expired = result.Expired
 		}
 	}
+
+	// Update model discovery credentials
+	e.modelDisc.SetCredentials(result.Token, qwenCookie(auth))
 
 	return auth, nil
 }
@@ -413,7 +479,6 @@ func qwenCreds(a *cliproxyauth.Auth) (token, cookie string) {
 	if a == nil {
 		return "", ""
 	}
-	// Extract from metadata (primary storage)
 	if a.Metadata != nil {
 		if v, ok := a.Metadata["access_token"].(string); ok && strings.TrimSpace(v) != "" {
 			token = v
@@ -422,7 +487,6 @@ func qwenCreds(a *cliproxyauth.Auth) (token, cookie string) {
 			cookie = v
 		}
 	}
-	// Fallback to attributes
 	if a.Attributes != nil {
 		if token == "" {
 			if v := a.Attributes["access_token"]; v != "" {
@@ -441,6 +505,12 @@ func qwenCreds(a *cliproxyauth.Auth) (token, cookie string) {
 		}
 	}
 	return token, cookie
+}
+
+// qwenCookie extracts just the cookie from auth.
+func qwenCookie(a *cliproxyauth.Auth) string {
+	_, cookie := qwenCreds(a)
+	return cookie
 }
 
 // buildQwenFinishChunk creates an OpenAI-compatible finish chunk for stream completion.
