@@ -434,6 +434,8 @@ func (s *Service) ensureExecutorsForAuthWithMode(a *coreauth.Auth, forceReplace 
 		s.coreManager.RegisterExecutor(executor.NewClaudeExecutor(s.cfg))
 	case "kimi":
 		s.coreManager.RegisterExecutor(executor.NewKimiExecutor(s.cfg))
+	case "qwen":
+		s.coreManager.RegisterExecutor(executor.NewQwenExecutor(s.cfg))
 	case "xai":
 		s.coreManager.RegisterExecutor(executor.NewXAIExecutor(s.cfg))
 	default:
@@ -592,6 +594,7 @@ func (s *Service) registerHomeExecutors() {
 	s.coreManager.RegisterExecutor(executor.NewAIStudioExecutor(s.cfg, "", s.wsGateway))
 	s.coreManager.RegisterExecutor(executor.NewAntigravityExecutor(s.cfg))
 	s.coreManager.RegisterExecutor(executor.NewKimiExecutor(s.cfg))
+	s.coreManager.RegisterExecutor(executor.NewQwenExecutor(s.cfg))
 	s.coreManager.RegisterExecutor(executor.NewOpenAICompatExecutor("openai-compatibility", s.cfg))
 }
 

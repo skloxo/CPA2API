@@ -24,4 +24,7 @@ const (
 
 	// Antigravity represents the Antigravity response format identifier.
 	Antigravity = "antigravity"
+
+	// Qwen represents the Alibaba Cloud Qwen provider identifier.
+	Qwen = "qwen"
 )

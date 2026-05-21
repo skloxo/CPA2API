@@ -13,6 +13,7 @@ func init() {
 	registerRefreshLead("gemini-cli", func() Authenticator { return NewGeminiAuthenticator() })
 	registerRefreshLead("antigravity", func() Authenticator { return NewAntigravityAuthenticator() })
 	registerRefreshLead("kimi", func() Authenticator { return NewKimiAuthenticator() })
+	registerRefreshLead("qwen", func() Authenticator { return NewQwenAuthenticator() })
 	registerRefreshLead("xai", func() Authenticator { return NewXAIAuthenticator() })
 }
 
