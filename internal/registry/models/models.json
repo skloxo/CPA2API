@@ -2335,8 +2335,12 @@
       "type": "qwen",
       "display_name": "Qwen3.6 Plus",
       "context_length": 131072,
-      "supportedInputModalities": ["TEXT"],
-      "supportedOutputModalities": ["TEXT"]
+      "supportedInputModalities": [
+        "TEXT"
+      ],
+      "supportedOutputModalities": [
+        "TEXT"
+      ]
     },
     {
       "id": "qwen3.7-max",
@@ -2346,8 +2350,12 @@
       "type": "qwen",
       "display_name": "Qwen3.7 Max",
       "context_length": 131072,
-      "supportedInputModalities": ["TEXT"],
-      "supportedOutputModalities": ["TEXT"]
+      "supportedInputModalities": [
+        "TEXT"
+      ],
+      "supportedOutputModalities": [
+        "TEXT"
+      ]
     },
     {
       "id": "qwen3.6-max-preview",
@@ -2357,8 +2365,12 @@
       "type": "qwen",
       "display_name": "Qwen3.6 Max Preview",
       "context_length": 131072,
-      "supportedInputModalities": ["TEXT"],
-      "supportedOutputModalities": ["TEXT"]
+      "supportedInputModalities": [
+        "TEXT"
+      ],
+      "supportedOutputModalities": [
+        "TEXT"
+      ]
     },
     {
       "id": "qwen3.5-plus",
@@ -2368,8 +2380,12 @@
       "type": "qwen",
       "display_name": "Qwen3.5 Plus",
       "context_length": 131072,
-      "supportedInputModalities": ["TEXT"],
-      "supportedOutputModalities": ["TEXT"]
+      "supportedInputModalities": [
+        "TEXT"
+      ],
+      "supportedOutputModalities": [
+        "TEXT"
+      ]
     },
     {
       "id": "qwen3.5-flash",
@@ -2379,8 +2395,12 @@
       "type": "qwen",
       "display_name": "Qwen3.5 Flash",
       "context_length": 131072,
-      "supportedInputModalities": ["TEXT"],
-      "supportedOutputModalities": ["TEXT"]
+      "supportedInputModalities": [
+        "TEXT"
+      ],
+      "supportedOutputModalities": [
+        "TEXT"
+      ]
     },
     {
       "id": "qwen3.5-omni-plus",
@@ -2390,8 +2410,14 @@
       "type": "qwen",
       "display_name": "Qwen3.5 Omni Plus",
       "context_length": 131072,
-      "supportedInputModalities": ["TEXT", "IMAGE", "AUDIO"],
-      "supportedOutputModalities": ["TEXT"]
+      "supportedInputModalities": [
+        "TEXT",
+        "IMAGE",
+        "AUDIO"
+      ],
+      "supportedOutputModalities": [
+        "TEXT"
+      ]
     },
     {
       "id": "qwen3.5-omni-flash",
@@ -2401,8 +2427,14 @@
       "type": "qwen",
       "display_name": "Qwen3.5 Omni Flash",
       "context_length": 131072,
-      "supportedInputModalities": ["TEXT", "IMAGE", "AUDIO"],
-      "supportedOutputModalities": ["TEXT"]
+      "supportedInputModalities": [
+        "TEXT",
+        "IMAGE",
+        "AUDIO"
+      ],
+      "supportedOutputModalities": [
+        "TEXT"
+      ]
     },
     {
       "id": "qwen3.5-397b-a17b",
@@ -2412,8 +2444,12 @@
       "type": "qwen",
       "display_name": "Qwen3.5 397B-A17B",
       "context_length": 131072,
-      "supportedInputModalities": ["TEXT"],
-      "supportedOutputModalities": ["TEXT"]
+      "supportedInputModalities": [
+        "TEXT"
+      ],
+      "supportedOutputModalities": [
+        "TEXT"
+      ]
     },
     {
       "id": "qwen3.5-122b-a10b",
@@ -2423,8 +2459,12 @@
       "type": "qwen",
       "display_name": "Qwen3.5 122B-A10B",
       "context_length": 131072,
-      "supportedInputModalities": ["TEXT"],
-      "supportedOutputModalities": ["TEXT"]
+      "supportedInputModalities": [
+        "TEXT"
+      ],
+      "supportedOutputModalities": [
+        "TEXT"
+      ]
     },
     {
       "id": "qwen3.5-27b",
@@ -2434,8 +2474,12 @@
       "type": "qwen",
       "display_name": "Qwen3.5 27B",
       "context_length": 131072,
-      "supportedInputModalities": ["TEXT"],
-      "supportedOutputModalities": ["TEXT"]
+      "supportedInputModalities": [
+        "TEXT"
+      ],
+      "supportedOutputModalities": [
+        "TEXT"
+      ]
     },
     {
       "id": "qwen3.5-35b-a3b",
@@ -2445,8 +2489,12 @@
       "type": "qwen",
       "display_name": "Qwen3.5 35B-A3B",
       "context_length": 131072,
-      "supportedInputModalities": ["TEXT"],
-      "supportedOutputModalities": ["TEXT"]
+      "supportedInputModalities": [
+        "TEXT"
+      ],
+      "supportedOutputModalities": [
+        "TEXT"
+      ]
     },
     {
       "id": "qwen3.5-max-2026-03-08",
@@ -2456,8 +2504,12 @@
       "type": "qwen",
       "display_name": "Qwen3.5 Max",
       "context_length": 131072,
-      "supportedInputModalities": ["TEXT"],
-      "supportedOutputModalities": ["TEXT"]
+      "supportedInputModalities": [
+        "TEXT"
+      ],
+      "supportedOutputModalities": [
+        "TEXT"
+      ]
     },
     {
       "id": "qwen3.6-27b",
@@ -2467,8 +2519,12 @@
       "type": "qwen",
       "display_name": "Qwen3.6 27B",
       "context_length": 131072,
-      "supportedInputModalities": ["TEXT"],
-      "supportedOutputModalities": ["TEXT"]
+      "supportedInputModalities": [
+        "TEXT"
+      ],
+      "supportedOutputModalities": [
+        "TEXT"
+      ]
     },
     {
       "id": "qwen3.6-35b-a3b",
@@ -2478,8 +2534,12 @@
       "type": "qwen",
       "display_name": "Qwen3.6 35B-A3B",
       "context_length": 131072,
-      "supportedInputModalities": ["TEXT"],
-      "supportedOutputModalities": ["TEXT"]
+      "supportedInputModalities": [
+        "TEXT"
+      ],
+      "supportedOutputModalities": [
+        "TEXT"
+      ]
     },
     {
       "id": "qwen3.6-plus-preview",
@@ -2489,41 +2549,12 @@
       "type": "qwen",
       "display_name": "Qwen3.6 Plus Preview",
       "context_length": 131072,
-      "supportedInputModalities": ["TEXT"],
-      "supportedOutputModalities": ["TEXT"]
-    },
-    {
-      "id": "qwen3-max",
-      "object": "model",
-      "created": 1746057600,
-      "owned_by": "qwen",
-      "type": "qwen",
-      "display_name": "Qwen3 Max",
-      "context_length": 131072,
-      "supportedInputModalities": ["TEXT"],
-      "supportedOutputModalities": ["TEXT"]
-    },
-    {
-      "id": "qwen3-plus",
-      "object": "model",
-      "created": 1746057600,
-      "owned_by": "qwen",
-      "type": "qwen",
-      "display_name": "Qwen3 Plus",
-      "context_length": 131072,
-      "supportedInputModalities": ["TEXT"],
-      "supportedOutputModalities": ["TEXT"]
-    },
-    {
-      "id": "qwen3-turbo",
-      "object": "model",
-      "created": 1746057600,
-      "owned_by": "qwen",
-      "type": "qwen",
-      "display_name": "Qwen3 Turbo",
-      "context_length": 131072,
-      "supportedInputModalities": ["TEXT"],
-      "supportedOutputModalities": ["TEXT"]
+      "supportedInputModalities": [
+        "TEXT"
+      ],
+      "supportedOutputModalities": [
+        "TEXT"
+      ]
     },
     {
       "id": "qwen3-coder-plus",
@@ -2533,8 +2564,12 @@
       "type": "qwen",
       "display_name": "Qwen3 Coder Plus",
       "context_length": 131072,
-      "supportedInputModalities": ["TEXT"],
-      "supportedOutputModalities": ["TEXT"]
+      "supportedInputModalities": [
+        "TEXT"
+      ],
+      "supportedOutputModalities": [
+        "TEXT"
+      ]
     },
     {
       "id": "qwen3-vl-plus",
@@ -2544,8 +2579,13 @@
       "type": "qwen",
       "display_name": "Qwen3 VL Plus",
       "context_length": 131072,
-      "supportedInputModalities": ["TEXT", "IMAGE"],
-      "supportedOutputModalities": ["TEXT"]
+      "supportedInputModalities": [
+        "TEXT",
+        "IMAGE"
+      ],
+      "supportedOutputModalities": [
+        "TEXT"
+      ]
     },
     {
       "id": "qwen3-max-2026-01-23",
@@ -2555,8 +2595,12 @@
       "type": "qwen",
       "display_name": "Qwen3 Max (2026-01-23)",
       "context_length": 131072,
-      "supportedInputModalities": ["TEXT"],
-      "supportedOutputModalities": ["TEXT"]
+      "supportedInputModalities": [
+        "TEXT"
+      ],
+      "supportedOutputModalities": [
+        "TEXT"
+      ]
     },
     {
       "id": "qwen3-omni-flash-2025-12-01",
@@ -2566,8 +2610,14 @@
       "type": "qwen",
       "display_name": "Qwen3 Omni Flash",
       "context_length": 131072,
-      "supportedInputModalities": ["TEXT", "IMAGE", "AUDIO"],
-      "supportedOutputModalities": ["TEXT"]
+      "supportedInputModalities": [
+        "TEXT",
+        "IMAGE",
+        "AUDIO"
+      ],
+      "supportedOutputModalities": [
+        "TEXT"
+      ]
     },
     {
       "id": "qwen-max-latest",
@@ -2577,30 +2627,12 @@
       "type": "qwen",
       "display_name": "Qwen Max Latest",
       "context_length": 131072,
-      "supportedInputModalities": ["TEXT"],
-      "supportedOutputModalities": ["TEXT"]
-    },
-    {
-      "id": "qwen-max",
-      "object": "model",
-      "created": 1704067200,
-      "owned_by": "qwen",
-      "type": "qwen",
-      "display_name": "Qwen Max",
-      "context_length": 131072,
-      "supportedInputModalities": ["TEXT"],
-      "supportedOutputModalities": ["TEXT"]
-    },
-    {
-      "id": "qwen-plus",
-      "object": "model",
-      "created": 1704067200,
-      "owned_by": "qwen",
-      "type": "qwen",
-      "display_name": "Qwen Plus",
-      "context_length": 131072,
-      "supportedInputModalities": ["TEXT"],
-      "supportedOutputModalities": ["TEXT"]
+      "supportedInputModalities": [
+        "TEXT"
+      ],
+      "supportedOutputModalities": [
+        "TEXT"
+      ]
     },
     {
       "id": "qwen-plus-2025-07-28",
@@ -2610,96 +2642,42 @@
       "type": "qwen",
       "display_name": "Qwen Plus (2025-07-28)",
       "context_length": 131072,
-      "supportedInputModalities": ["TEXT"],
-      "supportedOutputModalities": ["TEXT"]
+      "supportedInputModalities": [
+        "TEXT"
+      ],
+      "supportedOutputModalities": [
+        "TEXT"
+      ]
     },
     {
-      "id": "qwen-turbo",
+      "id": "qwen-latest-series-invite-beta-v16",
       "object": "model",
-      "created": 1704067200,
+      "created": 1780000000,
       "owned_by": "qwen",
       "type": "qwen",
-      "display_name": "Qwen Turbo",
+      "display_name": "Qwen Latest Series Invite Beta V16",
       "context_length": 131072,
-      "supportedInputModalities": ["TEXT"],
-      "supportedOutputModalities": ["TEXT"]
+      "supportedInputModalities": [
+        "TEXT"
+      ],
+      "supportedOutputModalities": [
+        "TEXT"
+      ]
     },
     {
-      "id": "qwq-plus",
+      "id": "qwen-latest-series-invite-beta-v24",
       "object": "model",
-      "created": 1740000000,
+      "created": 1780000000,
       "owned_by": "qwen",
       "type": "qwen",
-      "display_name": "QwQ Plus",
+      "display_name": "Qwen Latest Series Invite Beta V24",
       "context_length": 131072,
-      "supportedInputModalities": ["TEXT"],
-      "supportedOutputModalities": ["TEXT"]
-    },
-    {
-      "id": "qwq-max",
-      "object": "model",
-      "created": 1740000000,
-      "owned_by": "qwen",
-      "type": "qwen",
-      "display_name": "QwQ Max",
-      "context_length": 131072,
-      "supportedInputModalities": ["TEXT"],
-      "supportedOutputModalities": ["TEXT"]
-    },
-    {
-      "id": "qwen-vl-max",
-      "object": "model",
-      "created": 1704067200,
-      "owned_by": "qwen",
-      "type": "qwen",
-      "display_name": "Qwen VL Max",
-      "context_length": 131072,
-      "supportedInputModalities": ["TEXT", "IMAGE"],
-      "supportedOutputModalities": ["TEXT"]
-    },
-    {
-      "id": "qwen-vl-plus",
-      "object": "model",
-      "created": 1704067200,
-      "owned_by": "qwen",
-      "type": "qwen",
-      "display_name": "Qwen VL Plus",
-      "context_length": 131072,
-      "supportedInputModalities": ["TEXT", "IMAGE"],
-      "supportedOutputModalities": ["TEXT"]
-    },
-    {
-      "id": "qwen-coder-plus",
-      "object": "model",
-      "created": 1704067200,
-      "owned_by": "qwen",
-      "type": "qwen",
-      "display_name": "Qwen Coder Plus",
-      "context_length": 131072,
-      "supportedInputModalities": ["TEXT"],
-      "supportedOutputModalities": ["TEXT"]
-    },
-    {
-      "id": "qwen-coder-turbo",
-      "object": "model",
-      "created": 1704067200,
-      "owned_by": "qwen",
-      "type": "qwen",
-      "display_name": "Qwen Coder Turbo",
-      "context_length": 131072,
-      "supportedInputModalities": ["TEXT"],
-      "supportedOutputModalities": ["TEXT"]
-    },
-    {
-      "id": "qwen-long",
-      "object": "model",
-      "created": 1704067200,
-      "owned_by": "qwen",
-      "type": "qwen",
-      "display_name": "Qwen Long",
-      "context_length": 10000000,
-      "supportedInputModalities": ["TEXT"],
-      "supportedOutputModalities": ["TEXT"]
+      "supportedInputModalities": [
+        "TEXT"
+      ],
+      "supportedOutputModalities": [
+        "TEXT"
+      ]
     }
   ]
 }

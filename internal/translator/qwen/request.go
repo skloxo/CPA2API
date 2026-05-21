@@ -25,14 +25,14 @@ import (
 
 // qwenModelMapping maps OpenAI model names to Qwen model names.
 var qwenModelMapping = map[string]string{
-	// Qwen 3.6 series
-	"qwen3.6-plus":          "qwen3.6-plus",
-	"qwen3.6-max-preview":   "qwen3.6-max-preview",
-	"qwen3.6-27b":           "qwen3.6-27b",
-	"qwen3.6-35b-a3b":       "qwen3.6-35b-a3b",
-	"qwen3.6-plus-preview":  "qwen3.6-plus-preview",
 	// Qwen 3.7 series
-	"qwen3.7-max":           "qwen3.7-max",
+	"qwen3.7-max": "qwen3.7-max",
+	// Qwen 3.6 series
+	"qwen3.6-plus":         "qwen3.6-plus",
+	"qwen3.6-plus-preview": "qwen3.6-plus-preview",
+	"qwen3.6-max-preview":  "qwen3.6-max-preview",
+	"qwen3.6-27b":          "qwen3.6-27b",
+	"qwen3.6-35b-a3b":      "qwen3.6-35b-a3b",
 	// Qwen 3.5 series
 	"qwen3.5-plus":           "qwen3.5-plus",
 	"qwen3.5-flash":          "qwen3.5-flash",
@@ -44,46 +44,19 @@ var qwenModelMapping = map[string]string{
 	"qwen3.5-27b":            "qwen3.5-27b",
 	"qwen3.5-35b-a3b":        "qwen3.5-35b-a3b",
 	// Qwen 3 series
-	"qwen3-max":               "qwen3-max",
-	"qwen3-plus":              "qwen3-plus",
-	"qwen3-turbo":             "qwen3-turbo",
-	"qwen3-coder-plus":        "qwen3-coder-plus",
-	"qwen3-vl-plus":           "qwen3-vl-plus",
-	"qwen3-max-2026-01-23":    "qwen3-max-2026-01-23",
+	"qwen3-coder-plus":            "qwen3-coder-plus",
+	"qwen3-vl-plus":               "qwen3-vl-plus",
+	"qwen3-max-2026-01-23":        "qwen3-max-2026-01-23",
 	"qwen3-omni-flash-2025-12-01": "qwen3-omni-flash-2025-12-01",
 	// Qwen latest / classic
-	"qwen-max-latest":         "qwen-max-latest",
-	"qwen-max":                "qwen-max",
-	"qwen-plus":               "qwen-plus",
-	"qwen-plus-2025-07-28":    "qwen-plus-2025-07-28",
-	"qwen-turbo":              "qwen-turbo",
+	"qwen-max-latest":          "qwen-max-latest",
+	"qwen-plus-2025-07-28":     "qwen-plus-2025-07-28",
 	// Beta series
 	"qwen-latest-series-invite-beta-v24": "qwen-latest-series-invite-beta-v24",
 	"qwen-latest-series-invite-beta-v16": "qwen-latest-series-invite-beta-v16",
-	// Reasoning models
-	"qwq-plus":  "qwq-plus",
-	"qwq-max":   "qwq-max",
-	// Multimodal
-	"qwen-vl-max":        "qwen-vl-max",
-	"qwen-vl-plus":       "qwen-vl-plus",
-	"qwen-audio-turbo":   "qwen-audio-turbo",
-	// Coder
-	"qwen-coder-plus":    "qwen-coder-plus",
-	"qwen-coder-turbo":   "qwen-coder-turbo",
-	// Long-context
-	"qwen-long":          "qwen-long",
-	// Legacy 2.5 series
-	"qwen2.5-max":        "qwen2.5-max",
-	"qwen2.5-plus":       "qwen2.5-plus",
-	"qwen2.5-turbo":      "qwen2.5-turbo",
-	"qwen2.5-coder-plus": "qwen2.5-coder-plus",
 	// Long-context models routed via CLI endpoint
-	"qwen3-max:long":          "qwen3-max",
-	"qwen-max:long":           "qwen-max",
-	"qwen-plus:long":          "qwen-plus",
-	"qwen-long:long":          "qwen-long",
-	"qwen-max-latest:long":    "qwen-max-latest",
-	"qwen3.7-max:long":        "qwen3.7-max",
+	"qwen-max-latest:long": "qwen-max-latest",
+	"qwen3.7-max:long":     "qwen3.7-max",
 }
 
 // reverseQwenModelMapping maps Qwen model names back to OpenAI model names.
