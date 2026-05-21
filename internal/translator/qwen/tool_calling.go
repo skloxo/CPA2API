@@ -122,7 +122,7 @@ func InjectFormatReminder(prompt, toolName string) string {
 			"- Any disclaimer about a tool being unavailable, missing, or unregistered\n"+
 			"- Any sentence claiming you are unable to run a function\n"+
 			"- Any apology for failing to invoke something\n",
-		toolName, toolName, jsonEscapeString(toolName))
+		toolName)
 
 	prompt = strings.TrimRight(prompt, " \t\n")
 	if strings.HasSuffix(prompt, "Assistant:") {
