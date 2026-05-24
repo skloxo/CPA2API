@@ -76,9 +76,15 @@ func (a QwenAuthenticator) Login(ctx context.Context, cfg *config.Config, opts *
 		return nil, fmt.Errorf("qwen: email and password are required")
 	}
 
+	// Get proxy url if specified
+	proxyURL := strings.TrimSpace(opts.Metadata["proxy_url"])
+	if proxyURL == "" {
+		proxyURL = strings.TrimSpace(opts.Metadata["proxy"])
+	}
+
 	// Authenticate with Qwen
 	qwenAuthSvc := qwenauth.NewQwenAuth(cfg)
-	result, err := qwenAuthSvc.SignIn(ctx, email, password)
+	result, err := qwenAuthSvc.SignIn(ctx, email, password, proxyURL)
 	if err != nil {
 		return nil, fmt.Errorf("qwen: sign-in failed: %w", err)
 	}
@@ -87,6 +93,8 @@ func (a QwenAuthenticator) Login(ctx context.Context, cfg *config.Config, opts *
 	tokenStorage := &qwenauth.QwenTokenStorage{
 		AccessToken: result.Token,
 		Email:       email,
+		Password:    password,
+		ProxyURL:    proxyURL,
 		Type:        "qwen",
 	}
 	if result.Expired != "" {
@@ -98,7 +106,9 @@ func (a QwenAuthenticator) Login(ctx context.Context, cfg *config.Config, opts *
 		"type":         "qwen",
 		"access_token": result.Token,
 		"email":        email,
-		"timestamp": time.Now().UnixMilli(),
+		"password":     password, // Required for token auto-refresh via Refresh()
+		"proxy_url":    proxyURL,
+		"timestamp":    time.Now().UnixMilli(),
 	}
 	if result.Expired != "" {
 		metadata["expired"] = result.Expired

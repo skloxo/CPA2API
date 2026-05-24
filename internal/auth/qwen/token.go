@@ -21,6 +21,10 @@ type QwenTokenStorage struct {
 	Email string `json:"email"`
 	// Expired is the RFC3339 timestamp when the access token expires.
 	Expired string `json:"expired,omitempty"`
+	// Password is the user's account password.
+	Password string `json:"password,omitempty"`
+	// ProxyURL is the proxy URL to be used for requests.
+	ProxyURL string `json:"proxy_url,omitempty"`
 	// Type indicates the authentication provider type, always "qwen" for this storage.
 	Type string `json:"type"`
 
@@ -44,7 +48,7 @@ func (ts *QwenTokenStorage) SaveTokenToFile(authFilePath string) error {
 		return fmt.Errorf("qwen: failed to create directory: %w", err)
 	}
 
-	f, err := os.Create(authFilePath)
+	f, err := os.OpenFile(authFilePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
 	if err != nil {
 		return fmt.Errorf("qwen: failed to create token file: %w", err)
 	}

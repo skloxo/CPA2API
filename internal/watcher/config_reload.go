@@ -126,7 +126,7 @@ func (w *Watcher) reloadConfig() bool {
 		}
 	}
 
-	authDirChanged := oldConfig == nil || oldConfig.AuthDir != newConfig.AuthDir
+	authDirChanged := oldConfig == nil || oldConfig.AuthDir != newConfig.AuthDir || len(affectedOAuthProviders) > 0
 	retryConfigChanged := oldConfig != nil && (oldConfig.RequestRetry != newConfig.RequestRetry || oldConfig.MaxRetryInterval != newConfig.MaxRetryInterval || oldConfig.MaxRetryCredentials != newConfig.MaxRetryCredentials)
 	forceAuthRefresh := oldConfig != nil && (oldConfig.ForceModelPrefix != newConfig.ForceModelPrefix || !reflect.DeepEqual(oldConfig.OAuthModelAlias, newConfig.OAuthModelAlias) || retryConfigChanged)
 

@@ -230,8 +230,12 @@ func cloneModelInfos(models []*ModelInfo) []*ModelInfo {
 //   - kimi
 //   - antigravity
 //   - xai
+//   - qwen
 func GetStaticModelDefinitionsByChannel(channel string) []*ModelInfo {
 	key := strings.ToLower(strings.TrimSpace(channel))
+	if dynamicModels := GetGlobalRegistry().GetAvailableModelsByProvider(key); len(dynamicModels) > 0 {
+		return dynamicModels
+	}
 	switch key {
 	case "claude":
 		return GetClaudeModels()
@@ -251,6 +255,14 @@ func GetStaticModelDefinitionsByChannel(channel string) []*ModelInfo {
 		return GetAntigravityModels()
 	case "xai", "x-ai", "grok":
 		return GetXAIModels()
+	case "qwen":
+		m := GetQwenModels()
+		if m == nil {
+			// Channel is known; return empty slice (not nil) so callers don't
+			// treat it as an unknown channel when the remote catalog is missing qwen.
+			m = []*ModelInfo{}
+		}
+		return m
 	default:
 		return nil
 	}
@@ -274,6 +286,7 @@ func LookupStaticModelInfo(modelID string) *ModelInfo {
 		data.Kimi,
 		data.Antigravity,
 		data.XAI,
+		data.Qwen,
 	}
 	for _, models := range allModels {
 		for _, m := range models {

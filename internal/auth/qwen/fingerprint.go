@@ -210,7 +210,6 @@ func GetSsxmodItna2() string {
 func ApplyBrowserHeaders(r *http.Request, stream bool) {
 	r.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36")
 	r.Header.Set("Accept-Language", "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7")
-	r.Header.Set("Accept-Encoding", "gzip, deflate, br, zstd")
 	r.Header.Set("sec-ch-ua", `"Chromium";v="143", "Google Chrome";v="143", "Not-A.Brand";v="99"`)
 	r.Header.Set("sec-ch-ua-mobile", "?0")
 	r.Header.Set("sec-ch-ua-platform", `"macOS"`)
@@ -224,8 +223,10 @@ func ApplyBrowserHeaders(r *http.Request, stream bool) {
 	r.Header.Set("Origin", QwenAPIBaseURL)
 	if stream {
 		r.Header.Set("Accept", "text/event-stream")
+		r.Header.Set("Accept-Encoding", "identity")
 	} else {
 		r.Header.Set("Accept", "application/json")
+		r.Header.Set("Accept-Encoding", "gzip, deflate, br, zstd")
 	}
 }
 

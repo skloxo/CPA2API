@@ -27,6 +27,7 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/auth/codex"
 	geminiAuth "github.com/router-for-me/CLIProxyAPI/v7/internal/auth/gemini"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/auth/kimi"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/auth/qwen"
 	xaiauth "github.com/router-for-me/CLIProxyAPI/v7/internal/auth/xai"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/interfaces"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/misc"
@@ -288,13 +289,35 @@ func (h *Handler) GetAuthFileModels(c *gin.Context) {
 	reg := registry.GetGlobalRegistry()
 	models := reg.GetModelsForClient(authID)
 
+	// Fallback: if no dynamic models were found and this is a qwen credential,
+	// return the static Qwen model list so the card always shows something useful.
+	if len(models) == 0 && h.authManager != nil {
+		if auth, ok := h.authManager.GetByID(authID); ok && strings.EqualFold(auth.Provider, "qwen") {
+			models = registry.GetQwenModels()
+		}
+	}
+
+	isQwen := false
+	if h.authManager != nil {
+		if auth, ok := h.authManager.GetByID(authID); ok && strings.EqualFold(auth.Provider, "qwen") {
+			isQwen = true
+		}
+	}
+	if !isQwen && (strings.Contains(strings.ToLower(name), "qwen") || strings.Contains(strings.ToLower(authID), "qwen")) {
+		isQwen = true
+	}
+
 	result := make([]gin.H, 0, len(models))
 	for _, m := range models {
 		entry := gin.H{
 			"id": m.ID,
 		}
-		if m.DisplayName != "" {
-			entry["display_name"] = m.DisplayName
+		displayName := m.DisplayName
+		if isQwen || m.Type == "qwen" || m.OwnedBy == "qwen" {
+			displayName = m.ID
+		}
+		if displayName != "" {
+			entry["display_name"] = displayName
 		}
 		if m.Type != "" {
 			entry["type"] = m.Type
@@ -1164,6 +1187,8 @@ func (h *Handler) PatchAuthFileFields(c *gin.Context) {
 		Headers  map[string]string `json:"headers"`
 		Priority *int              `json:"priority"`
 		Note     *string           `json:"note"`
+		Email    *string           `json:"email"`
+		Password *string           `json:"password"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
@@ -1326,6 +1351,40 @@ func (h *Handler) PatchAuthFileFields(c *gin.Context) {
 				targetAuth.Metadata["note"] = trimmedNote
 				targetAuth.Attributes["note"] = trimmedNote
 			}
+		}
+		changed = true
+	}
+	if req.Email != nil {
+		if targetAuth.Metadata == nil {
+			targetAuth.Metadata = make(map[string]any)
+		}
+		if targetAuth.Attributes == nil {
+			targetAuth.Attributes = make(map[string]string)
+		}
+		email := strings.TrimSpace(*req.Email)
+		if email == "" {
+			delete(targetAuth.Metadata, "email")
+			delete(targetAuth.Attributes, "email")
+		} else {
+			targetAuth.Metadata["email"] = email
+			targetAuth.Attributes["email"] = email
+		}
+		changed = true
+	}
+	if req.Password != nil {
+		if targetAuth.Metadata == nil {
+			targetAuth.Metadata = make(map[string]any)
+		}
+		if targetAuth.Attributes == nil {
+			targetAuth.Attributes = make(map[string]string)
+		}
+		password := *req.Password
+		if password == "" {
+			delete(targetAuth.Metadata, "password")
+			delete(targetAuth.Attributes, "password")
+		} else {
+			targetAuth.Metadata["password"] = password
+			targetAuth.Attributes["password"] = password
 		}
 		changed = true
 	}
@@ -2796,4 +2855,92 @@ func PopulateAuthContext(ctx context.Context, c *gin.Context) context.Context {
 		Headers: c.Request.Header,
 	}
 	return coreauth.WithRequestInfo(ctx, info)
+}
+
+// PostAuthFileRefresh handles POST /auth-files/:name/refresh requests.
+// It retrieves the credential file by name, detects if it's a Qwen credential,
+// and if it is, performs a token refresh by calling SignIn and updating the storage.
+func (h *Handler) PostAuthFileRefresh(c *gin.Context) {
+	if h == nil || h.cfg == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "handler not initialized"})
+		return
+	}
+
+	name := strings.TrimSpace(c.Param("name"))
+	if isUnsafeAuthFileName(name) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid name"})
+		return
+	}
+	if !strings.HasSuffix(strings.ToLower(name), ".json") {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "name must end with .json"})
+		return
+	}
+
+	fullPath := filepath.Join(h.cfg.AuthDir, name)
+	data, err := os.ReadFile(fullPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "auth file not found"})
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to read file: %v", err)})
+		}
+		return
+	}
+
+	typeVal := gjson.GetBytes(data, "type").String()
+	isQwen := strings.EqualFold(typeVal, "qwen") || strings.HasPrefix(strings.ToLower(name), "qwen-")
+
+	if !isQwen {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "only Qwen auth files are currently supported for manual refresh"})
+		return
+	}
+
+	email := strings.TrimSpace(gjson.GetBytes(data, "email").String())
+	password := strings.TrimSpace(gjson.GetBytes(data, "password").String())
+	proxyURL := strings.TrimSpace(gjson.GetBytes(data, "proxy_url").String())
+	if proxyURL == "" {
+		proxyURL = strings.TrimSpace(gjson.GetBytes(data, "proxy").String())
+	}
+
+	if email == "" || password == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "auth file missing email or password required for refresh"})
+		return
+	}
+
+	// Sign in with Qwen
+	qwenAuthSvc := qwen.NewQwenAuth(h.cfg)
+	result, err := qwenAuthSvc.SignIn(c.Request.Context(), email, password, proxyURL)
+	if err != nil {
+		log.Errorf("qwen refresh failed for %s: %v", email, err)
+		c.JSON(http.StatusBadGateway, gin.H{"error": fmt.Sprintf("Qwen sign-in failed: %v", err)})
+		return
+	}
+
+	// Build token storage and save to file
+	storage := &qwen.QwenTokenStorage{
+		AccessToken: result.Token,
+		Email:       email,
+		Expired:     result.Expired,
+		Password:    password,
+		ProxyURL:    proxyURL,
+	}
+	if proxyURL != "" {
+		storage.SetMetadata(map[string]any{
+			"proxy": proxyURL,
+		})
+	}
+
+	if err := storage.SaveTokenToFile(fullPath); err != nil {
+		log.Errorf("qwen: failed to save refreshed token for %s: %v", email, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to save token to file: %v", err)})
+		return
+	}
+
+	// Reload/Re-register the credential in core auth manager memory
+	if err := h.registerAuthFromFile(c.Request.Context(), fullPath, nil); err != nil {
+		log.Errorf("qwen: failed to re-register auth from file: %v", err)
+	}
+
+	log.Infof("qwen token manually refreshed for %s", email)
+	c.JSON(http.StatusOK, gin.H{"status": "success", "message": "token refreshed successfully", "email": email})
 }

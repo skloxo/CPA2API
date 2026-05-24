@@ -71,6 +71,10 @@ func (w *Watcher) handleEvent(event fsnotify.Event) {
 	normalizedConfigPath := w.normalizeAuthPath(w.configPath)
 	normalizedAuthDir := w.normalizeAuthPath(w.authDir)
 	isConfigEvent := normalizedName == normalizedConfigPath && event.Op&configOps != 0
+	// Ensure that auth file updates never trigger configuration reloads
+	if isConfigEvent && strings.HasPrefix(normalizedName, normalizedAuthDir+string(filepath.Separator)) {
+		isConfigEvent = false
+	}
 	authOps := fsnotify.Create | fsnotify.Write | fsnotify.Remove | fsnotify.Rename
 	isAuthJSON := filepath.Dir(normalizedName) == normalizedAuthDir && strings.HasSuffix(normalizedName, ".json") && event.Op&authOps != 0
 	if !isConfigEvent && !isAuthJSON {

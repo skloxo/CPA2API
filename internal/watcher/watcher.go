@@ -100,6 +100,10 @@ func NewWatcher(configPath, authDir string, reloadCallback func(*config.Config))
 		lastAuthHashes:  make(map[string]string),
 		fileAuthsByPath: make(map[string]map[string]*coreauth.Auth),
 	}
+	if cfg, err := config.LoadConfig(configPath); err == nil && cfg != nil {
+		w.config = cfg
+		w.oldConfigYaml, _ = yaml.Marshal(cfg)
+	}
 	w.dispatchCond = sync.NewCond(&w.dispatchMu)
 	if store := sdkAuth.GetTokenStore(); store != nil {
 		if persister, ok := store.(storePersister); ok {
@@ -156,4 +160,9 @@ func (w *Watcher) SnapshotCoreAuths() []*coreauth.Auth {
 	cfg := w.config
 	w.clientsMutex.RUnlock()
 	return snapshotCoreAuths(cfg, w.authDir)
+}
+
+// TriggerConfigReload forces an immediate reload of the configuration from disk.
+func (w *Watcher) TriggerConfigReload() bool {
+	return w.reloadConfig()
 }

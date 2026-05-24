@@ -46,6 +46,7 @@ type Handler struct {
 	envSecret           string
 	logDir              string
 	postAuthHook        coreauth.PostAuthHook
+	postConfigSaveHook  func()
 }
 
 // NewHandler creates a new management handler instance.
@@ -142,6 +143,13 @@ func (h *Handler) SetPostAuthHook(hook coreauth.PostAuthHook) {
 	h.postAuthHook = hook
 }
 
+// SetPostConfigSaveHook registers a hook to be called after config persistence.
+func (h *Handler) SetPostConfigSaveHook(hook func()) {
+	h.mu.Lock()
+	h.postConfigSaveHook = hook
+	h.mu.Unlock()
+}
+
 // Middleware enforces access control for management endpoints.
 // All requests (local and remote) require a valid management key.
 // Additionally, remote access requires allow-remote-management=true.
@@ -153,6 +161,32 @@ func (h *Handler) Middleware() gin.HandlerFunc {
 
 		clientIP := c.ClientIP()
 		localClient := clientIP == "127.0.0.1" || clientIP == "::1"
+
+		// Check if any management password has been configured
+		h.mu.Lock()
+		secretHash := ""
+		if h.cfg != nil {
+			secretHash = h.cfg.RemoteManagement.SecretKey
+		}
+		h.mu.Unlock()
+		envSecret := h.envSecret
+		localPassword := h.localPassword
+
+		if secretHash == "" && envSecret == "" && localPassword == "" {
+			// No management password configured yet (first-run setup state)
+			// Allow bypass ONLY for the setup route
+			isSetupRoute := c.Request.URL.Path == "/v0/management/setup" || strings.HasSuffix(c.Request.URL.Path, "/setup")
+			if isSetupRoute && c.Request.Method == http.MethodPost {
+				c.Next()
+				return
+			}
+			// Block everything else, prompting the client to initialize/configure a password
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
+				"error":   "setup_required",
+				"message": "Management password has not been configured yet. Please set it up via the setup screen.",
+			})
+			return
+		}
 
 		// Accept either Authorization: Bearer <key> or X-Management-Key
 		var provided string
@@ -292,6 +326,9 @@ func (h *Handler) persistLocked(c *gin.Context) bool {
 	if err := config.SaveConfigPreserveComments(h.configFilePath, h.cfg); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to save config: %v", err)})
 		return false
+	}
+	if h.postConfigSaveHook != nil {
+		go h.postConfigSaveHook()
 	}
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	return true

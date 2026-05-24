@@ -82,6 +82,7 @@ func validTestModelsCatalog() *staticModelsJSON {
 		Kimi:        models,
 		Antigravity: models,
 		XAI:         models,
+		Qwen:        models,
 	}
 }
 
@@ -142,5 +143,25 @@ func assertGPT55ModelInfo(t *testing.T, source string, model *ModelInfo) {
 		if model.Thinking.Levels[i] != level {
 			t.Fatalf("%s thinking level %d mismatch: got %q, want %q", source, i, model.Thinking.Levels[i], level)
 		}
+	}
+}
+
+func TestQwenStaticModelsLookup(t *testing.T) {
+	models := GetQwenModels()
+	if len(models) == 0 {
+		t.Fatal("expected GetQwenModels to return at least one model definition")
+	}
+	firstModel := models[0]
+	lookup := LookupStaticModelInfo(firstModel.ID)
+	if lookup == nil {
+		t.Fatalf("expected LookupStaticModelInfo to find %s", firstModel.ID)
+	}
+	if lookup.ID != firstModel.ID {
+		t.Fatalf("model ID mismatch: got %q, want %q", lookup.ID, firstModel.ID)
+	}
+
+	channelModels := GetStaticModelDefinitionsByChannel("qwen")
+	if len(channelModels) == 0 {
+		t.Fatal("expected GetStaticModelDefinitionsByChannel('qwen') to return models")
 	}
 }

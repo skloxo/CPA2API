@@ -59,6 +59,7 @@ type serverOptionConfig struct {
 	keepAliveTimeout     time.Duration
 	keepAliveOnTimeout   func()
 	postAuthHook         auth.PostAuthHook
+	postConfigSaveHook   func()
 }
 
 // ServerOption customises HTTP server construction.
@@ -123,6 +124,13 @@ func WithRequestLoggerFactory(factory func(*config.Config, string) logging.Reque
 func WithPostAuthHook(hook auth.PostAuthHook) ServerOption {
 	return func(cfg *serverOptionConfig) {
 		cfg.postAuthHook = hook
+	}
+}
+
+// WithPostConfigSaveHook registers a hook to be called after config file save.
+func WithPostConfigSaveHook(hook func()) ServerOption {
+	return func(cfg *serverOptionConfig) {
+		cfg.postConfigSaveHook = hook
 	}
 }
 
@@ -287,6 +295,9 @@ func NewServer(cfg *config.Config, authManager *auth.Manager, accessManager *sdk
 	if optionState.postAuthHook != nil {
 		s.mgmt.SetPostAuthHook(optionState.postAuthHook)
 	}
+	if optionState.postConfigSaveHook != nil {
+		s.mgmt.SetPostConfigSaveHook(optionState.postConfigSaveHook)
+	}
 	s.localPassword = optionState.localPassword
 
 	// Home heartbeat gate: when home is enabled, block all endpoints with 503 until the
@@ -314,11 +325,13 @@ func NewServer(cfg *config.Config, authManager *auth.Manager, accessManager *sdk
 	}
 
 	// Register management routes when configuration or environment secrets are available,
-	// or when a local management password is provided (e.g. TUI mode).
+	// when a local management password is provided (e.g. TUI mode),
+	// or when no key is set yet but control panel is enabled (to allow first-run password setup).
 	hasManagementSecret := cfg.RemoteManagement.SecretKey != "" || envManagementSecret || s.localPassword != ""
-	s.managementRoutesEnabled.Store(hasManagementSecret)
-	redisqueue.SetEnabled(hasManagementSecret || (cfg != nil && cfg.Home.Enabled))
-	if hasManagementSecret {
+	enableManagement := hasManagementSecret || (cfg != nil && !cfg.RemoteManagement.DisableControlPanel)
+	s.managementRoutesEnabled.Store(enableManagement)
+	redisqueue.SetEnabled(enableManagement || (cfg != nil && cfg.Home.Enabled))
+	if enableManagement {
 		s.registerManagementRoutes()
 	}
 
@@ -694,10 +707,16 @@ func (s *Server) registerManagementRoutes() {
 		mgmt.GET("/model-definitions/:channel", s.mgmt.GetStaticModelDefinitions)
 		mgmt.GET("/auth-files/download", s.mgmt.DownloadAuthFile)
 		mgmt.POST("/auth-files", s.mgmt.UploadAuthFile)
+		mgmt.POST("/auth-files/:name/refresh", s.mgmt.PostAuthFileRefresh)
 		mgmt.DELETE("/auth-files", s.mgmt.DeleteAuthFile)
 		mgmt.PATCH("/auth-files/status", s.mgmt.PatchAuthFileStatus)
 		mgmt.PATCH("/auth-files/fields", s.mgmt.PatchAuthFileFields)
 		mgmt.POST("/vertex/import", s.mgmt.ImportVertexCredential)
+
+		mgmt.POST("/qwen-login", s.mgmt.PostQwenLogin)
+
+		mgmt.POST("/setup", s.mgmt.PostSetupManagementKey)
+		mgmt.POST("/change-password", s.mgmt.PostChangeManagementKey)
 
 		mgmt.GET("/anthropic-auth-url", s.mgmt.RequestAnthropicToken)
 		mgmt.GET("/codex-auth-url", s.mgmt.RequestCodexToken)
@@ -1410,11 +1429,8 @@ func (s *Server) UpdateClients(cfg *config.Config) {
 		util.SetLogLevel(cfg)
 	}
 
-	prevSecretEmpty := true
-	if oldCfg != nil {
-		prevSecretEmpty = oldCfg.RemoteManagement.SecretKey == ""
-	}
 	newSecretEmpty := cfg.RemoteManagement.SecretKey == ""
+	enableManagement := !newSecretEmpty || (cfg != nil && !cfg.RemoteManagement.DisableControlPanel)
 	if s.envManagementSecret {
 		s.registerManagementRoutes()
 		if s.managementRoutesEnabled.CompareAndSwap(false, true) {
@@ -1423,22 +1439,19 @@ func (s *Server) UpdateClients(cfg *config.Config) {
 			s.managementRoutesEnabled.Store(true)
 		}
 	} else {
-		switch {
-		case prevSecretEmpty && !newSecretEmpty:
+		if enableManagement {
 			s.registerManagementRoutes()
 			if s.managementRoutesEnabled.CompareAndSwap(false, true) {
-				log.Info("management routes enabled after secret key update")
+				log.Info("management routes enabled for setup/management")
 			} else {
 				s.managementRoutesEnabled.Store(true)
 			}
-		case !prevSecretEmpty && newSecretEmpty:
+		} else {
 			if s.managementRoutesEnabled.CompareAndSwap(true, false) {
-				log.Info("management routes disabled after secret key removal")
+				log.Info("management routes disabled after control panel disabled")
 			} else {
 				s.managementRoutesEnabled.Store(false)
 			}
-		default:
-			s.managementRoutesEnabled.Store(!newSecretEmpty)
 		}
 	}
 	redisqueue.SetEnabled(s.managementRoutesEnabled.Load() || (cfg != nil && cfg.Home.Enabled))

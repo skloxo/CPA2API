@@ -52,18 +52,13 @@ func ToQwenName(name string) string {
 	if mapped, ok := obfuscationMap[name]; ok {
 		return mapped
 	}
-	// Generic suffix for unmapped names
-	return name + NameSuffix
+	return name
 }
 
 // FromQwenName converts a Qwen obfuscated name back to the original client name.
 func FromQwenName(name string) string {
 	if mapped, ok := reverseObfuscationMap[name]; ok {
 		return mapped
-	}
-	// Strip generic suffix
-	if strings.HasSuffix(name, NameSuffix) {
-		return strings.TrimSuffix(name, NameSuffix)
 	}
 	return name
 }
@@ -157,15 +152,144 @@ func FixToolArgs(args string) string {
 		}
 	}
 
-	// Try repairing common issues
-	repaired := repairLooseJSON(args)
+	// Try stack-based repair first
+	repaired := BulletproofRepairJSON(args)
+	repaired = repairLooseJSON(repaired)
 	if err := json.Unmarshal([]byte(repaired), &m); err == nil {
+		b, _ := json.Marshal(m)
+		return string(b)
+	}
+
+	// Try raw loose repair
+	repairedLoose := repairLooseJSON(args)
+	if err := json.Unmarshal([]byte(repairedLoose), &m); err == nil {
 		b, _ := json.Marshal(m)
 		return string(b)
 	}
 
 	// Return empty object as fallback
 	return "{}"
+}
+
+// BulletproofRepairJSON repairs truncated/malformed JSON strings by balancing structures.
+func BulletproofRepairJSON(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return "{}"
+	}
+
+	s = stripCodeFences(s)
+
+	if !strings.HasPrefix(s, "{") {
+		idx := strings.Index(s, "{")
+		if idx >= 0 {
+			s = s[idx:]
+		} else {
+			if strings.Contains(s, ":") {
+				s = "{" + s + "}"
+			} else {
+				return "{}"
+			}
+		}
+	}
+
+	var stack []rune
+	var inString bool
+	var stringChar rune
+	var escaped bool
+
+	var clean []rune
+	runes := []rune(s)
+
+	for i := 0; i < len(runes); i++ {
+		r := runes[i]
+
+		if inString {
+			if escaped {
+				clean = append(clean, r)
+				escaped = false
+				continue
+			}
+			if r == '\\' {
+				clean = append(clean, r)
+				escaped = true
+				continue
+			}
+			if r == stringChar {
+				clean = append(clean, '"')
+				inString = false
+				continue
+			}
+			clean = append(clean, r)
+			continue
+		}
+
+		if r == '"' || r == '\'' {
+			inString = true
+			stringChar = r
+			clean = append(clean, '"')
+			continue
+		}
+
+		if r == '{' {
+			stack = append(stack, '{')
+			clean = append(clean, '{')
+			continue
+		}
+		if r == '[' {
+			stack = append(stack, '[')
+			clean = append(clean, '[')
+			continue
+		}
+		if r == '}' {
+			if len(stack) > 0 && stack[len(stack)-1] == '{' {
+				stack = stack[:len(stack)-1]
+				clean = append(clean, '}')
+			}
+			continue
+		}
+		if r == ']' {
+			if len(stack) > 0 && stack[len(stack)-1] == '[' {
+				stack = stack[:len(stack)-1]
+				clean = append(clean, ']')
+			}
+			continue
+		}
+
+		if r == ',' {
+			nextNonWs := rune(0)
+			for j := i + 1; j < len(runes); j++ {
+				if runes[j] != ' ' && runes[j] != '\t' && runes[j] != '\r' && runes[j] != '\n' {
+					nextNonWs = runes[j]
+					break
+				}
+			}
+			if nextNonWs == '}' || nextNonWs == ']' {
+				continue
+			}
+		}
+
+		clean = append(clean, r)
+	}
+
+	if inString {
+		clean = append(clean, '"')
+	}
+
+	cleanStr := strings.TrimRight(string(clean), " \t\r\n,")
+	cleanRunes := []rune(cleanStr)
+
+	for len(stack) > 0 {
+		top := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if top == '{' {
+			cleanRunes = append(cleanRunes, '}')
+		} else if top == '[' {
+			cleanRunes = append(cleanRunes, ']')
+		}
+	}
+
+	return string(cleanRunes)
 }
 
 // stripCodeFences removes markdown code fences from text.
@@ -213,7 +337,7 @@ func normalizeArguments(args string) map[string]interface{} {
 		return m
 	}
 	// Try fixing
-	repaired := repairLooseJSON(args)
+	repaired := FixToolArgs(args)
 	if err := json.Unmarshal([]byte(repaired), &m); err == nil {
 		return m
 	}
@@ -302,8 +426,16 @@ func NormalizeToolName(name string, allowedNames []string) string {
 	if len(allowedNames) == 0 {
 		return name
 	}
+	// Try exact match first
 	for _, allowed := range allowedNames {
 		if strings.EqualFold(name, allowed) {
+			return allowed
+		}
+	}
+	// Try matching after unobfuscating the Qwen name
+	unobfuscated := FromQwenName(name)
+	for _, allowed := range allowedNames {
+		if strings.EqualFold(unobfuscated, allowed) {
 			return allowed
 		}
 	}
@@ -315,19 +447,16 @@ func NormalizeToolName(name string, allowedNames []string) string {
 // ────────────────────────────────────────────────────────────────────
 
 var reXMLToolCallsWrapper = regexp.MustCompile(`(?s)<tool_calls>(.*?)</tool_calls>`)
-var reXMLToolCallSingle = regexp.MustCompile(`(?s)`)
-var reXMLToolCallBare = regexp.MustCompile(`(?s)`)
+var reXMLToolCallSingle = regexp.MustCompile(`(?s)<tool_call\s+name=["']([^"']+)["']\s*>(.*?)</tool_call>`)
+var reXMLToolCallBare = regexp.MustCompile(`(?s)<tool_call\s+name=["']([^"']+)["']\s*>(.*?)</tool_call>`)
 
 func parseXMLFormat(text string, allowedNames []string) []ToolCall {
 	// Try wrapped <tool_calls> first
 	if m := reXMLToolCallsWrapper.FindStringSubmatch(text); m != nil {
 		return parseXMLInner(m[1], allowedNames)
 	}
-	// Try bare tool_call
-	if m := reXMLToolCallBare.FindStringSubmatch(text); m != nil {
-		return parseXMLInner(m[0], allowedNames)
-	}
-	return nil
+	// Try bare tool_calls directly from the whole text
+	return parseXMLInner(text, allowedNames)
 }
 
 func parseXMLInner(inner string, allowedNames []string) []ToolCall {
@@ -357,8 +486,8 @@ func parseJSONFormat(text string, allowedNames []string) []ToolCall {
 
 	var payload map[string]interface{}
 	if err := json.Unmarshal([]byte(stripped), &payload); err != nil {
-		repaired := repairLooseJSON(stripped)
-		if repaired == stripped {
+		repaired := FixToolArgs(stripped)
+		if repaired == stripped || repaired == "{}" {
 			return nil
 		}
 		if err := json.Unmarshal([]byte(repaired), &payload); err != nil {
@@ -562,4 +691,286 @@ func parseCodeBlockFormat(text string, allowedNames []string) []ToolCall {
 		Name:  NormalizeToolName(name, allowedNames),
 		Input: input,
 	}}
+}
+
+// BuildToolSystemPrompt builds a standard system instructions prompt for tools injection.
+func BuildToolSystemPrompt(tools []map[string]interface{}, toolChoice interface{}) string {
+	var b strings.Builder
+	b.WriteString("## Tools\n\n")
+	b.WriteString("You can call a set of tools to perform actions or fetch information. ")
+	b.WriteString("To call a tool, you MUST use the following standard `<tool_call>` XML format:\n")
+	b.WriteString("```xml\n<tool_call name=\"ToolName\">\n")
+	b.WriteString("{\n  \"arg1\": \"value1\"\n}\n")
+	b.WriteString("</tool_call>\n```\n\n")
+	b.WriteString("Here is the list of available tools in standard TypeScript/JSON definitions:\n\n")
+
+	for _, tool := range tools {
+		name, _ := tool["name"].(string)
+		if name == "" {
+			// Check under "function" nested struct
+			if fn, ok := tool["function"].(map[string]interface{}); ok {
+				name, _ = fn["name"].(string)
+			}
+		}
+		if name == "" {
+			continue
+		}
+
+		qwenName := ToQwenName(name)
+		desc := ""
+		if fn, ok := tool["function"].(map[string]interface{}); ok {
+			desc, _ = fn["description"].(string)
+		} else {
+			desc, _ = tool["description"].(string)
+		}
+
+		b.WriteString(fmt.Sprintf("### Tool: %s\n", qwenName))
+		if desc != "" {
+			b.WriteString(fmt.Sprintf("Description: %s\n", desc))
+		}
+
+		var params map[string]interface{}
+		if fn, ok := tool["function"].(map[string]interface{}); ok {
+			if p, ok := fn["parameters"].(map[string]interface{}); ok {
+				params = p
+			}
+		} else if p, ok := tool["parameters"].(map[string]interface{}); ok {
+			params = p
+		}
+
+		if len(params) > 0 {
+			b.WriteString("Parameters (JSON Schema):\n")
+			pBytes, err := json.MarshalIndent(params, "", "  ")
+			if err == nil {
+				b.WriteString("```json\n")
+				b.WriteString(string(pBytes))
+				b.WriteString("\n```\n")
+			}
+		}
+		b.WriteString("\n")
+	}
+
+	b.WriteString("## Tool Execution Rules\n")
+	b.WriteString("1. You must only invoke tools that are listed above.\n")
+	b.WriteString("2. You must strictly pass arguments conforming to the JSON Schema definitions.\n")
+	b.WriteString("3. DO NOT hallucinate tools, parameters, or values. ")
+	b.WriteString("4. Claims about the tool being unavailable or missing are strictly forbidden.\n")
+
+	if toolChoice != nil {
+		if choiceStr, ok := toolChoice.(string); ok && choiceStr == "required" {
+			b.WriteString("- You MUST call a tool in your response.\n")
+		} else if choiceMap, ok := toolChoice.(map[string]interface{}); ok {
+			if fn, ok := choiceMap["function"].(map[string]interface{}); ok {
+				if name, ok := fn["name"].(string); ok && name != "" {
+					b.WriteString(fmt.Sprintf("- You MUST call the tool `%s` first.\n", ToQwenName(name)))
+				}
+			}
+		}
+	}
+
+	return b.String()
+}
+
+// GetJSONRepairSuffix scans the string to track open quotes, braces '{', and brackets '[' (accounting for backslash escape characters).
+// If the last non-whitespace character in the trimmed string is a comma, it appends a dummy repair pair "__fixed":true (if the top stack is '{') or null (if the top stack is '[') to avoid trailing comma parsing errors.
+// Then, it closes all remaining open braces/brackets from the stack, and returns the computed suffix string.
+func GetJSONRepairSuffix(s string) string {
+	var stack []rune
+	var inString bool
+	var stringChar rune
+	var escaped bool
+
+	runes := []rune(s)
+	for i := 0; i < len(runes); i++ {
+		r := runes[i]
+		if inString {
+			if escaped {
+				escaped = false
+				continue
+			}
+			if r == '\\' {
+				escaped = true
+				continue
+			}
+			if r == stringChar {
+				inString = false
+				continue
+			}
+			continue
+		}
+
+		if r == '"' || r == '\'' {
+			inString = true
+			stringChar = r
+			continue
+		}
+
+		if r == '{' {
+			stack = append(stack, '{')
+		} else if r == '[' {
+			stack = append(stack, '[')
+		} else if r == '}' {
+			if len(stack) > 0 && stack[len(stack)-1] == '{' {
+				stack = stack[:len(stack)-1]
+			}
+		} else if r == ']' {
+			if len(stack) > 0 && stack[len(stack)-1] == '[' {
+				stack = stack[:len(stack)-1]
+			}
+		}
+	}
+
+	var suffix strings.Builder
+	if inString {
+		suffix.WriteRune(stringChar)
+	}
+
+	combined := s + suffix.String()
+	trimmed := strings.TrimRight(combined, " \t\r\n")
+	if len(trimmed) > 0 && trimmed[len(trimmed)-1] == ',' {
+		if len(stack) > 0 {
+			top := stack[len(stack)-1]
+			if top == '{' {
+				suffix.WriteString(`"__fixed":true`)
+			} else if top == '[' {
+				suffix.WriteString(`null`)
+			}
+		}
+	}
+
+	for i := len(stack) - 1; i >= 0; i-- {
+		top := stack[i]
+		if top == '{' {
+			suffix.WriteRune('}')
+		} else if top == '[' {
+			suffix.WriteRune(']')
+		}
+	}
+
+	return suffix.String()
+}
+
+// IncrementalToolCall represents a parsed incremental tool call.
+type IncrementalToolCall struct {
+	Index      int
+	Name       string
+	Arguments  string
+	IsComplete bool
+}
+
+// ParseIncrementalToolCalls scans the accumulated string to find all <tool_call ...> blocks,
+// including incomplete ones, and tracks their bounds and extracts their parameters.
+func ParseIncrementalToolCalls(accumulated string, allowedNames []string) []IncrementalToolCall {
+	var toolCalls []IncrementalToolCall
+	pos := 0
+	index := 0
+
+	for {
+		if pos >= len(accumulated) {
+			break
+		}
+		startIdx := strings.Index(accumulated[pos:], "<tool_call")
+		if startIdx == -1 {
+			break
+		}
+		absoluteStartIdx := pos + startIdx
+
+		// Skip the wrapper <tool_calls> tag if matched
+		if len(accumulated) > absoluteStartIdx+len("<tool_call") && accumulated[absoluteStartIdx+len("<tool_call")] == 's' {
+			pos = absoluteStartIdx + len("<tool_calls")
+			continue
+		}
+
+		// Find the closing '>' of the opening tag
+		openTagEndIdx := strings.Index(accumulated[absoluteStartIdx:], ">")
+		if openTagEndIdx == -1 {
+			// Opening tag is incomplete, we can't extract arguments yet
+			break
+		}
+		absoluteOpenTagEndIdx := absoluteStartIdx + openTagEndIdx
+
+		// Extract the tag content to get the name attribute
+		tagContent := accumulated[absoluteStartIdx : absoluteOpenTagEndIdx+1]
+		name := ""
+		nameStart := strings.Index(tagContent, "name=")
+		if nameStart != -1 {
+			quoteChar := byte(0)
+			quoteStart := -1
+			for i := nameStart + 5; i < len(tagContent); i++ {
+				if tagContent[i] == '"' || tagContent[i] == '\'' {
+					quoteChar = tagContent[i]
+					quoteStart = i
+					break
+				}
+			}
+			if quoteStart != -1 {
+				quoteEnd := strings.IndexByte(tagContent[quoteStart+1:], quoteChar)
+				if quoteEnd != -1 {
+					name = tagContent[quoteStart+1 : quoteStart+1+quoteEnd]
+				}
+			}
+		}
+
+		name = FromQwenName(name)
+		name = NormalizeToolName(name, allowedNames)
+
+		argsStartIdx := absoluteOpenTagEndIdx + 1
+		endIdx := len(accumulated)
+		isComplete := false
+
+		closeTagIdx := strings.Index(accumulated[argsStartIdx:], "</")
+		if closeTagIdx != -1 {
+			absoluteCloseTagIdx := argsStartIdx + closeTagIdx
+			endIdx = absoluteCloseTagIdx
+			restOfTag := accumulated[absoluteCloseTagIdx:]
+			if strings.HasPrefix(restOfTag, "</tool_call>") || strings.HasPrefix(restOfTag, "</tool_calls>") {
+				isComplete = true
+			}
+		} else {
+			// Check if there is another `<tool_call` ahead (making sure to skip `<tool_calls>` wrapper)
+			nextIdx := argsStartIdx
+			for {
+				nextTCIdx := strings.Index(accumulated[nextIdx:], "<tool_call")
+				if nextTCIdx == -1 {
+					break
+				}
+				absNextTCIdx := nextIdx + nextTCIdx
+				// Check if this is `<tool_calls>`
+				if len(accumulated) > absNextTCIdx+len("<tool_call") && accumulated[absNextTCIdx+len("<tool_call")] == 's' {
+					nextIdx = absNextTCIdx + len("<tool_calls")
+					continue
+				}
+				// It's a real next `<tool_call`, so truncate arguments here and mark as complete
+				endIdx = absNextTCIdx
+				isComplete = true
+				break
+			}
+		}
+
+		arguments := accumulated[argsStartIdx:endIdx]
+
+		toolCalls = append(toolCalls, IncrementalToolCall{
+			Index:      index,
+			Name:       name,
+			Arguments:  arguments,
+			IsComplete: isComplete,
+		})
+
+		index++
+		if isComplete && closeTagIdx != -1 {
+			restOfTag := accumulated[argsStartIdx+closeTagIdx:]
+			if strings.HasPrefix(restOfTag, "</tool_calls>") {
+				pos = argsStartIdx + closeTagIdx + len("</tool_calls>")
+			} else {
+				pos = argsStartIdx + closeTagIdx + len("</tool_call>")
+			}
+		} else {
+			pos = endIdx
+			if pos <= absoluteOpenTagEndIdx {
+				pos = absoluteOpenTagEndIdx + 1
+			}
+		}
+	}
+
+	return toolCalls
 }

@@ -124,7 +124,12 @@ func tryRefreshModels(ctx context.Context, label string) {
 	// Detect changes before updating store.
 	changed := detectChangedProviders(oldData, parsed)
 
-	// Update store with new data regardless.
+	// Preserve local static definitions when remote section is empty.
+	// This prevents a remote models.json with missing provider sections
+	// from wiping out locally registered models.
+	preserveEmptySections(oldData, parsed)
+
+	// Update store with new data.
 	modelsCatalogStore.mu.Lock()
 	modelsCatalogStore.data = parsed
 	modelsCatalogStore.mu.Unlock()
@@ -216,6 +221,7 @@ func detectChangedProviders(oldData, newData *staticModelsJSON) []string {
 		{"kimi", oldData.Kimi, newData.Kimi},
 		{"antigravity", oldData.Antigravity, newData.Antigravity},
 		{"xai", oldData.XAI, newData.XAI},
+		{"qwen", oldData.Qwen, newData.Qwen},
 	}
 
 	seen := make(map[string]bool, len(sections))
@@ -337,6 +343,7 @@ func validateModelsCatalog(data *staticModelsJSON) error {
 		{name: "kimi", models: data.Kimi},
 		{name: "antigravity", models: data.Antigravity},
 		{name: "xai", models: data.XAI},
+		{name: "qwen", models: data.Qwen},
 	}
 
 	for _, section := range requiredSections {
@@ -368,4 +375,41 @@ func validateModelSection(section string, models []*ModelInfo) error {
 		seen[modelID] = struct{}{}
 	}
 	return nil
+}
+
+// preserveEmptySections copies provider sections from oldData to newData when
+// the remote catalog has an empty section but the local data has models.
+// This prevents remote model catalog updates from wiping out locally defined
+// models for providers that are not yet in the remote catalog.
+func preserveEmptySections(oldData, newData *staticModelsJSON) {
+	if oldData == nil || newData == nil {
+		return
+	}
+	if len(oldData.Qwen) > 0 && len(newData.Qwen) == 0 {
+		newData.Qwen = oldData.Qwen
+	}
+	if len(oldData.Claude) > 0 && len(newData.Claude) == 0 {
+		newData.Claude = oldData.Claude
+	}
+	if len(oldData.Gemini) > 0 && len(newData.Gemini) == 0 {
+		newData.Gemini = oldData.Gemini
+	}
+	if len(oldData.Kimi) > 0 && len(newData.Kimi) == 0 {
+		newData.Kimi = oldData.Kimi
+	}
+	if len(oldData.XAI) > 0 && len(newData.XAI) == 0 {
+		newData.XAI = oldData.XAI
+	}
+	if len(oldData.CodexFree) > 0 && len(newData.CodexFree) == 0 {
+		newData.CodexFree = oldData.CodexFree
+	}
+	if len(oldData.CodexTeam) > 0 && len(newData.CodexTeam) == 0 {
+		newData.CodexTeam = oldData.CodexTeam
+	}
+	if len(oldData.CodexPlus) > 0 && len(newData.CodexPlus) == 0 {
+		newData.CodexPlus = oldData.CodexPlus
+	}
+	if len(oldData.CodexPro) > 0 && len(newData.CodexPro) == 0 {
+		newData.CodexPro = oldData.CodexPro
+	}
 }

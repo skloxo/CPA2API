@@ -16,6 +16,8 @@ import (
 	"time"
 
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/runtime/executor/helps"
+	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -46,7 +48,8 @@ func NewQwenAuth(cfg *config.Config) *QwenAuth {
 
 // SignIn authenticates with Qwen using email and password.
 // The password is SHA256 hashed before sending to the API.
-func (q *QwenAuth) SignIn(ctx context.Context, email, password string) (*QwenAuthResult, error) {
+// An optional proxyURL parameter can be provided to override the default proxy.
+func (q *QwenAuth) SignIn(ctx context.Context, email, password, proxyURL string) (*QwenAuthResult, error) {
 	email = strings.TrimSpace(email)
 	password = strings.TrimSpace(password)
 	if email == "" {
@@ -73,12 +76,15 @@ func (q *QwenAuth) SignIn(ctx context.Context, email, password string) (*QwenAut
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36 Edg/134.0.0.0")
 
-	httpClient := &http.Client{}
-	// TODO: configure proxy for Qwen auth requests if needed
-	if q.cfg != nil && strings.TrimSpace(q.cfg.ProxyURL) != "" {
-		log.Debugf("qwen: proxy configuration available but not yet applied to auth requests")
+	var authObj *cliproxyauth.Auth
+	if strings.TrimSpace(proxyURL) != "" {
+		authObj = &cliproxyauth.Auth{
+			ProxyURL: strings.TrimSpace(proxyURL),
+		}
 	}
+	httpClient := helps.NewUtlsHTTPClient(q.cfg, authObj, 15*time.Second)
 
 	resp, err := httpClient.Do(req)
 	if err != nil {

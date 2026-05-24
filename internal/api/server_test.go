@@ -40,6 +40,9 @@ func newTestServer(t *testing.T) *Server {
 		Debug:                  true,
 		LoggingToFile:          false,
 		UsageStatisticsEnabled: false,
+		RemoteManagement: proxyconfig.RemoteManagement{
+			DisableControlPanel: true,
+		},
 	}
 
 	authManager := auth.NewManager(nil, nil, nil)

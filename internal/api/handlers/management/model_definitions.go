@@ -26,6 +26,18 @@ func (h *Handler) GetStaticModelDefinitions(c *gin.Context) {
 		return
 	}
 
+	if strings.ToLower(strings.TrimSpace(channel)) == "qwen" {
+		clonedModels := make([]*registry.ModelInfo, len(models))
+		for i, m := range models {
+			if m != nil {
+				clone := *m
+				clone.DisplayName = m.ID
+				clonedModels[i] = &clone
+			}
+		}
+		models = clonedModels
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"channel": strings.ToLower(strings.TrimSpace(channel)),
 		"models":  models,

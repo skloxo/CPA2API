@@ -49,8 +49,8 @@ var qwenModelMapping = map[string]string{
 	"qwen3-max-2026-01-23":        "qwen3-max-2026-01-23",
 	"qwen3-omni-flash-2025-12-01": "qwen3-omni-flash-2025-12-01",
 	// Qwen latest / classic
-	"qwen-max-latest":          "qwen-max-latest",
-	"qwen-plus-2025-07-28":     "qwen-plus-2025-07-28",
+	"qwen-max-latest":      "qwen-max-latest",
+	"qwen-plus-2025-07-28": "qwen-plus-2025-07-28",
 	// Beta series
 	"qwen-latest-series-invite-beta-v24": "qwen-latest-series-invite-beta-v24",
 	"qwen-latest-series-invite-beta-v16": "qwen-latest-series-invite-beta-v16",
@@ -81,8 +81,224 @@ func ConvertOpenAIRequestToQwen(model string, rawJSON []byte, stream bool) []byt
 		return rawJSON
 	}
 
+	// 1. Fold incoming tool messages at the top of the function
+	rawJSON = foldToolMessages(rawJSON)
+
 	mappedModel := mapModelToQwen(model)
 	ts := time.Now().UnixMilli()
+
+	// --- Extract system messages and merge into user content ---
+	var systemParts []string
+	openaiMessages := gjson.GetBytes(rawJSON, "messages")
+	if !openaiMessages.Exists() || !openaiMessages.IsArray() {
+		return rawJSON
+	}
+
+	for _, msg := range openaiMessages.Array() {
+		if msg.Get("role").String() == "system" {
+			content := extractTextContent(msg.Get("content"))
+			if content != "" {
+				systemParts = append(systemParts, content)
+			}
+		}
+	}
+
+	// --- Build pre-processed messages array ---
+	type msgInfo struct {
+		role    string
+		content string
+		files   []interface{}
+	}
+	var processedMessages []msgInfo
+
+	for _, msg := range openaiMessages.Array() {
+		role := msg.Get("role").String()
+		if role == "system" {
+			continue // already extracted
+		}
+
+		var contentStr string
+		var files []interface{}
+
+		contentVal := msg.Get("content")
+		if contentVal.Type == gjson.String {
+			contentStr = contentVal.String()
+		} else if contentVal.IsArray() {
+			var textParts []string
+			for _, part := range contentVal.Array() {
+				partType := part.Get("type").String()
+				if partType == "text" {
+					textParts = append(textParts, part.Get("text").String())
+				} else if partType == "image_url" {
+					imageURL := part.Get("image_url.url").String()
+					if imageURL != "" {
+						if isDataURI(imageURL) {
+							mimeType, data, err := parseDataURI(imageURL)
+							if err == nil {
+								fileExt := mimeToFileExt(mimeType)
+								filename := fmt.Sprintf("upload.%s", fileExt)
+								files = append(files, map[string]interface{}{
+									"name":        filename,
+									"filetype":    "image",
+									"size":        len(data),
+									"url":         imageURL,
+									"is_snapshot": false,
+									"status":      "done",
+									"biz_type":    "qwen",
+									"space_type":  "qwen",
+								})
+							}
+						} else {
+							filename := "upload.png"
+							if strings.Contains(imageURL, ".jpg") || strings.Contains(imageURL, ".jpeg") {
+								filename = "upload.jpg"
+							} else if strings.Contains(imageURL, ".gif") {
+								filename = "upload.gif"
+							} else if strings.Contains(imageURL, ".webp") {
+								filename = "upload.webp"
+							}
+							files = append(files, map[string]interface{}{
+								"name":        filename,
+								"filetype":    "image",
+								"url":         imageURL,
+								"is_snapshot": false,
+								"status":      "done",
+								"biz_type":    "qwen",
+								"space_type":  "qwen",
+							})
+						}
+					}
+				}
+			}
+			contentStr = strings.Join(textParts, "\n")
+		}
+
+		// Prepend system instructions to the first user message
+		if role == "user" && len(systemParts) > 0 {
+			sysText := strings.Join(systemParts, "\n\n")
+			if contentStr != "" {
+				contentStr = sysText + "\n\n" + contentStr
+			} else {
+				contentStr = sysText
+			}
+			systemParts = nil // only merge once
+		}
+
+		processedMessages = append(processedMessages, msgInfo{
+			role:    role,
+			content: contentStr,
+			files:   files,
+		})
+	}
+
+	// If no user message was found but we had system content, create a user message
+	if len(systemParts) > 0 && len(processedMessages) == 0 {
+		processedMessages = append(processedMessages, msgInfo{
+			role:    "user",
+			content: strings.Join(systemParts, "\n\n"),
+		})
+	}
+
+	// Consolidate multiple turns into a single message with role prefixes to satisfy Qwen Web API limits.
+	if len(processedMessages) > 1 {
+		var parts []string
+		var consolidatedFiles []interface{}
+		for _, msg := range processedMessages {
+			if msg.content != "" {
+				prefix := "Human: "
+				switch strings.ToLower(msg.role) {
+				case "user":
+					prefix = "Human: "
+				case "assistant":
+					prefix = "Assistant: "
+				case "system":
+					prefix = "System: "
+				}
+				parts = append(parts, prefix+msg.content)
+			}
+			if len(msg.files) > 0 {
+				consolidatedFiles = append(consolidatedFiles, msg.files...)
+			}
+		}
+		consolidatedText := strings.Join(parts, "\n\n")
+		processedMessages = []msgInfo{
+			{
+				role:    "user",
+				content: consolidatedText,
+				files:   consolidatedFiles,
+			},
+		}
+	}
+
+	N := len(processedMessages)
+	ids := make([]string, N)
+	for i := 0; i < N; i++ {
+		ids[i] = uuid.New().String()
+	}
+
+	// --- Build Qwen messages array with sequential UUID tree chaining ---
+	var qwenMessages []map[string]interface{}
+	for i, msg := range processedMessages {
+		var pID interface{} = nil
+		if i > 0 {
+			pID = ids[i-1]
+		}
+		var childrenIds []string
+		if i < N-1 {
+			childrenIds = []string{ids[i+1]}
+		} else {
+			childrenIds = []string{uuid.New().String()}
+		}
+
+		filesVal := msg.files
+		if filesVal == nil {
+			filesVal = []interface{}{}
+		}
+
+		qwenMsg := map[string]interface{}{
+			"fid":            ids[i],
+			"parentId":       pID,
+			"childrenIds":    childrenIds,
+			"role":           msg.role,
+			"content":        msg.content,
+			"user_action":    "chat",
+			"files":          filesVal,
+			"timestamp":      ts,
+			"models":         []string{mappedModel},
+			"chat_type":      "t2t",
+			"feature_config": buildFeatureConfig(),
+			"extra":          map[string]interface{}{"meta": map[string]interface{}{"subChatType": "t2t"}},
+			"sub_chat_type":  "t2t",
+			"parent_id":      pID,
+		}
+		qwenMessages = append(qwenMessages, qwenMsg)
+	}
+
+	// 2. Generate and inject the tool system prompt into the last user message
+	var toolSystemPrompt string
+	toolsVal := gjson.GetBytes(rawJSON, "tools")
+	if toolsVal.Exists() && toolsVal.IsArray() {
+		var toolsSlice []map[string]interface{}
+		if err := json.Unmarshal([]byte(toolsVal.Raw), &toolsSlice); err == nil && len(toolsSlice) > 0 {
+			toolSystemPrompt = BuildToolSystemPrompt(toolsSlice, gjson.GetBytes(rawJSON, "tool_choice").Value())
+		}
+	}
+
+	if toolSystemPrompt != "" {
+		// Find the last user message in the message list and prepend the tool system instructions
+		for i := len(qwenMessages) - 1; i >= 0; i-- {
+			if qwenMessages[i]["role"] == "user" {
+				if content, ok := qwenMessages[i]["content"].(string); ok {
+					if content != "" {
+						qwenMessages[i]["content"] = toolSystemPrompt + "\n\n" + content
+					} else {
+						qwenMessages[i]["content"] = toolSystemPrompt
+					}
+				}
+				break
+			}
+		}
+	}
 
 	// --- Build top-level Qwen request ---
 	qwenReq := map[string]interface{}{
@@ -111,85 +327,6 @@ func ConvertOpenAIRequestToQwen(model string, rawJSON []byte, stream bool) []byt
 		qwenReq["max_tokens"] = maxTok.Int()
 	}
 
-	// --- Extract system messages and merge into user content ---
-	var systemParts []string
-	openaiMessages := gjson.GetBytes(rawJSON, "messages")
-	if !openaiMessages.Exists() || !openaiMessages.IsArray() {
-		return rawJSON
-	}
-
-	for _, msg := range openaiMessages.Array() {
-		if msg.Get("role").String() == "system" {
-			content := extractTextContent(msg.Get("content"))
-			if content != "" {
-				systemParts = append(systemParts, content)
-			}
-		}
-	}
-
-	// --- Build Qwen messages array ---
-	var qwenMessages []map[string]interface{}
-	for _, msg := range openaiMessages.Array() {
-		role := msg.Get("role").String()
-		if role == "system" {
-			continue // already extracted
-		}
-
-		content := extractTextContent(msg.Get("content"))
-
-		// Prepend system instructions to the first user message
-		if role == "user" && len(systemParts) > 0 {
-			sysText := strings.Join(systemParts, "\n\n")
-			if content != "" {
-				content = sysText + "\n\n" + content
-			} else {
-				content = sysText
-			}
-			systemParts = nil // only merge once
-		}
-
-		childID := uuid.New().String()
-		qwenMsg := map[string]interface{}{
-			"fid":          uuid.New().String(),
-			"parentId":      nil,
-			"childrenIds":   []string{childID},
-			"role":          role,
-			"content":       content,
-			"user_action":   "chat",
-			"files":         []interface{}{},
-			"timestamp":     ts,
-			"models":        []string{mappedModel},
-			"chat_type":     "t2t",
-			"feature_config": buildFeatureConfig(),
-			"extra":         map[string]interface{}{"meta": map[string]interface{}{"subChatType": "t2t"}},
-			"sub_chat_type": "t2t",
-			"parent_id":     nil,
-		}
-		qwenMessages = append(qwenMessages, qwenMsg)
-	}
-
-	// If no user message was found but we had system content, create a user message
-	if len(systemParts) > 0 && len(qwenMessages) == 0 {
-		childID := uuid.New().String()
-		qwenMsg := map[string]interface{}{
-			"fid":          uuid.New().String(),
-			"parentId":      nil,
-			"childrenIds":   []string{childID},
-			"role":          "user",
-			"content":       strings.Join(systemParts, "\n\n"),
-			"user_action":   "chat",
-			"files":         []interface{}{},
-			"timestamp":     ts,
-			"models":        []string{mappedModel},
-			"chat_type":     "t2t",
-			"feature_config": buildFeatureConfig(),
-			"extra":         map[string]interface{}{"meta": map[string]interface{}{"subChatType": "t2t"}},
-			"sub_chat_type": "t2t",
-			"parent_id":     nil,
-		}
-		qwenMessages = append([]map[string]interface{}{qwenMsg}, qwenMessages...)
-	}
-
 	qwenReq["messages"] = qwenMessages
 
 	out, err := json.Marshal(qwenReq)
@@ -202,19 +339,19 @@ func ConvertOpenAIRequestToQwen(model string, rawJSON []byte, stream bool) []byt
 // buildFeatureConfig returns the standard Qwen feature_config for chat requests.
 func buildFeatureConfig() map[string]interface{} {
 	return map[string]interface{}{
-		"thinking_enabled":    true,
-		"output_schema":       "phase",
-		"research_mode":       "normal",
-		"auto_thinking":       true,
-		"thinking_mode":       "Auto",
-		"thinking_format":     "summary",
-		"auto_search":         false,
-		"code_interpreter":    false,
-		"plugins_enabled":     false,
-		"function_calling":    false,
-		"enable_tools":        false,
+		"thinking_enabled":     true,
+		"output_schema":        "phase",
+		"research_mode":        "normal",
+		"auto_thinking":        true,
+		"thinking_mode":        "Auto",
+		"thinking_format":      "summary",
+		"auto_search":          false,
+		"code_interpreter":     false,
+		"plugins_enabled":      false,
+		"function_calling":     false,
+		"enable_tools":         false,
 		"enable_function_call": false,
-		"tool_choice":         "none",
+		"tool_choice":          "none",
 	}
 }
 
@@ -231,15 +368,15 @@ func ConvertOpenAIRequestToQwenWithAuth(model string, rawJSON []byte, stream boo
 
 	// If we have a token, handle base64 image uploads
 	if strings.TrimSpace(token) != "" {
-		result = convertQwenNativeImageUpload(result, token)
+		result = ConvertQwenNativeImageUpload(result, token)
 	}
 
 	return result
 }
 
-// convertQwenNativeImageUpload handles base64 image upload in Qwen native format.
+// ConvertQwenNativeImageUpload handles base64 image upload in Qwen native format.
 // In the native format, files are in message.files array rather than message.content.
-func convertQwenNativeImageUpload(body []byte, token string) []byte {
+func ConvertQwenNativeImageUpload(body []byte, token string) []byte {
 	messages := gjson.GetBytes(body, "messages")
 	if !messages.Exists() || !messages.IsArray() {
 		return body
@@ -494,6 +631,7 @@ func foldToolMessages(body []byte) []byte {
 				i++
 				toolMsg := msgs[i]
 				toolContent := toolMsg.Get("content").String()
+				toolContent = compactToolResult(toolContent)
 				toolCallID := toolMsg.Get("tool_call_id").String()
 				toolFolded := map[string]interface{}{
 					"role":    "user",
@@ -512,6 +650,19 @@ func foldToolMessages(body []byte) []byte {
 
 	result, _ := sjson.SetBytes(body, "messages", newMessages)
 	return result
+}
+
+// compactToolResult checks if tool result content exceeds max size and compresses it.
+// Preserves 3000 head characters and 1000 tail characters.
+func compactToolResult(s string) string {
+	runes := []rune(s)
+	if len(runes) <= 6000 {
+		return s
+	}
+	head := string(runes[:3000])
+	tail := string(runes[len(runes)-1000:])
+	truncated := len(runes) - 4000
+	return fmt.Sprintf("%s\n... [TRUNCATED %d CHARS] ...\n%s", head, truncated, tail)
 }
 
 // removeSystemMessages removes system messages from the request body.
@@ -540,7 +691,10 @@ func removeSystemMessages(body []byte) []byte {
 // Uses encoding/json to handle all special characters correctly.
 func escapeJSON(s string) string {
 	b, _ := json.Marshal(s)
-	return strings.Trim(string(b), "\"")
+	if len(b) >= 2 && b[0] == '"' && b[len(b)-1] == '"' {
+		return string(b[1 : len(b)-1])
+	}
+	return string(b)
 }
 
 // convertImageContentParts transforms OpenAI image_url content parts into

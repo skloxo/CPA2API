@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -120,8 +119,7 @@ func (h *Handler) PutConfigYAML(c *gin.Context) {
 		return
 	}
 	// Validate config using LoadConfigOptional with optional=false to enforce parsing
-	tmpDir := filepath.Dir(h.configFilePath)
-	tmpFile, err := os.CreateTemp(tmpDir, "config-validate-*.yaml")
+	tmpFile, err := os.CreateTemp("", "config-validate-*.yaml")
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "write_failed", "message": err.Error()})
 		return

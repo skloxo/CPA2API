@@ -47,13 +47,13 @@ type qwenModelEntry struct {
 
 // QwenModelDiscovery manages dynamic model discovery from Qwen's API.
 type QwenModelDiscovery struct {
-	cfg          *config.Config
-	mu           sync.Mutex
-	cancel       context.CancelFunc
-	token        string
-	cookie       string
-	refreshOnce  sync.Once
-	lastModels   []*registry.ModelInfo
+	cfg         *config.Config
+	mu          sync.Mutex
+	cancel      context.CancelFunc
+	token       string
+	cookie      string
+	refreshOnce sync.Once
+	lastModels  []*registry.ModelInfo
 }
 
 // NewQwenModelDiscovery creates a new model discovery instance.
@@ -62,11 +62,19 @@ func NewQwenModelDiscovery(cfg *config.Config) *QwenModelDiscovery {
 }
 
 // SetCredentials sets the authentication token and cookie for API requests.
+// On the first call with a non-empty token, it automatically triggers
+// model discovery so that the model list is populated without requiring
+// an explicit Start() call.
 func (d *QwenModelDiscovery) SetCredentials(token, cookie string) {
 	d.mu.Lock()
-	defer d.mu.Unlock()
 	d.token = token
 	d.cookie = cookie
+	d.mu.Unlock()
+
+	// Auto-start model discovery on first valid credential
+	if strings.TrimSpace(token) != "" {
+		d.Start(context.Background())
+	}
 }
 
 // Start begins the periodic model discovery loop. Safe to call multiple times;
@@ -164,14 +172,19 @@ func (d *QwenModelDiscovery) fetchModels(ctx context.Context, token, cookie stri
 	if err != nil {
 		return nil, fmt.Errorf("fetch models: %w", err)
 	}
-	defer resp.Body.Close()
+	decodedBody, err := decodeResponseBody(resp.Body, resp.Header.Get("Content-Encoding"))
+	if err != nil {
+		resp.Body.Close()
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+	defer decodedBody.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(decodedBody)
 		return nil, fmt.Errorf("models API returned status %d: %s", resp.StatusCode, string(body))
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(decodedBody)
 	if err != nil {
 		return nil, fmt.Errorf("read response: %w", err)
 	}
@@ -231,38 +244,44 @@ func convertQwenModelsToRegistry(entries []qwenModelEntry) []*registry.ModelInfo
 
 // qwenModelDisplayName returns a human-readable display name for a Qwen model ID.
 func qwenModelDisplayName(id string) string {
-	switch {
-	case strings.HasPrefix(id, "qwen3-max"):
-		return "Qwen3 Max"
-	case strings.HasPrefix(id, "qwen3-plus"):
-		return "Qwen3 Plus"
-	case strings.HasPrefix(id, "qwen3-turbo"):
-		return "Qwen3 Turbo"
-	case strings.HasPrefix(id, "qwen-max"):
-		return "Qwen Max"
-	case strings.HasPrefix(id, "qwen-plus"):
-		return "Qwen Plus"
-	case strings.HasPrefix(id, "qwen-turbo"):
-		return "Qwen Turbo"
-	case strings.HasPrefix(id, "qwq-max"):
-		return "QwQ Max"
-	case strings.HasPrefix(id, "qwq-plus"):
-		return "QwQ Plus"
-	case strings.HasPrefix(id, "qwen-long"):
-		return "Qwen Long"
-	case strings.HasPrefix(id, "qwen-vl-max"):
-		return "Qwen VL Max"
-	case strings.HasPrefix(id, "qwen-vl-plus"):
-		return "Qwen VL Plus"
-	case strings.HasPrefix(id, "qwen-audio"):
-		return "Qwen Audio Turbo"
-	case strings.HasPrefix(id, "qwen-coder-plus"):
-		return "Qwen Coder Plus"
-	case strings.HasPrefix(id, "qwen-coder-turbo"):
-		return "Qwen Coder Turbo"
-	default:
-		return id
-	}
+	// Return original ID directly in this version.
+	// We preserve the prefix mapping logic for future iteration plans.
+	return id
+
+	/*
+		switch {
+		case strings.HasPrefix(id, "qwen3-max"):
+			return "Qwen3 Max"
+		case strings.HasPrefix(id, "qwen3-plus"):
+			return "Qwen3 Plus"
+		case strings.HasPrefix(id, "qwen3-turbo"):
+			return "Qwen3 Turbo"
+		case strings.HasPrefix(id, "qwen-max"):
+			return "Qwen Max"
+		case strings.HasPrefix(id, "qwen-plus"):
+			return "Qwen Plus"
+		case strings.HasPrefix(id, "qwen-turbo"):
+			return "Qwen Turbo"
+		case strings.HasPrefix(id, "qwq-max"):
+			return "QwQ Max"
+		case strings.HasPrefix(id, "qwq-plus"):
+			return "QwQ Plus"
+		case strings.HasPrefix(id, "qwen-long"):
+			return "Qwen Long"
+		case strings.HasPrefix(id, "qwen-vl-max"):
+			return "Qwen VL Max"
+		case strings.HasPrefix(id, "qwen-vl-plus"):
+			return "Qwen VL Plus"
+		case strings.HasPrefix(id, "qwen-audio"):
+			return "Qwen Audio Turbo"
+		case strings.HasPrefix(id, "qwen-coder-plus"):
+			return "Qwen Coder Plus"
+		case strings.HasPrefix(id, "qwen-coder-turbo"):
+			return "Qwen Coder Turbo"
+		default:
+			return id
+		}
+	*/
 }
 
 // qwenModelContextLength returns the context length for known model families.

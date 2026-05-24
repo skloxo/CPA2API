@@ -116,6 +116,7 @@ func newDefaultAuthManager() *sdkAuth.Manager {
 		sdkAuth.NewGeminiAuthenticator(),
 		sdkAuth.NewCodexAuthenticator(),
 		sdkAuth.NewClaudeAuthenticator(),
+		sdkAuth.NewQwenAuthenticator(),
 		sdkAuth.NewXAIAuthenticator(),
 	)
 }
@@ -473,6 +474,10 @@ func (s *Service) rebindExecutors() {
 			reboundCodex = true
 		}
 		s.ensureExecutorsForAuthWithMode(auth, true)
+		if auth != nil && !auth.Disabled {
+			s.registerModelsForAuth(auth)
+			s.coreManager.ReconcileRegistryModelStates(context.Background(), auth.ID)
+		}
 	}
 }
 
@@ -811,7 +816,14 @@ func (s *Service) Run(ctx context.Context) error {
 	// legacy clients removed; no caches to refresh
 
 	// handlers no longer depend on legacy clients; pass nil slice initially
-	s.server = api.NewServer(s.cfg, s.coreManager, s.accessManager, s.configPath, s.serverOptions...)
+	serverOpts := append([]api.ServerOption(nil), s.serverOptions...)
+	serverOpts = append(serverOpts, api.WithPostConfigSaveHook(func() {
+		log.Info("Config updated via management endpoints, forcing in-memory config reload")
+		if s.watcher != nil {
+			s.watcher.TriggerConfigReload()
+		}
+	}))
+	s.server = api.NewServer(s.cfg, s.coreManager, s.accessManager, s.configPath, serverOpts...)
 
 	if s.authManager == nil {
 		s.authManager = newDefaultAuthManager()
@@ -1081,9 +1093,43 @@ func (s *Service) registerModelsForAuth(a *coreauth.Auth) {
 		provider = "openai-compatibility"
 	}
 	excluded := s.oauthExcludedModels(provider, authKind)
-	// The synthesizer pre-merges per-account and global exclusions into the "excluded_models" attribute.
-	// If this attribute is present, it represents the complete list of exclusions and overrides the global config.
+	// Dynamically merge per-account exclusions (resolving the parent's Metadata if it's a virtual child) with live global exclusions.
+	var metadata map[string]any
 	if a.Attributes != nil {
+		if parentID := strings.TrimSpace(a.Attributes["gemini_virtual_parent"]); parentID != "" && s.coreManager != nil {
+			if parentAuth, ok := s.coreManager.GetByID(parentID); ok && parentAuth != nil {
+				metadata = parentAuth.Metadata
+			}
+		}
+	}
+	if metadata == nil {
+		metadata = a.Metadata
+	}
+	if metadata != nil {
+		perAccount := extractPerAccountExcludedModels(metadata)
+		seen := make(map[string]struct{})
+		var merged []string
+		for _, entry := range excluded {
+			trimmed := strings.ToLower(strings.TrimSpace(entry))
+			if trimmed != "" {
+				if _, exists := seen[trimmed]; !exists {
+					seen[trimmed] = struct{}{}
+					merged = append(merged, entry)
+				}
+			}
+		}
+		for _, entry := range perAccount {
+			trimmed := strings.ToLower(strings.TrimSpace(entry))
+			if trimmed != "" {
+				if _, exists := seen[trimmed]; !exists {
+					seen[trimmed] = struct{}{}
+					merged = append(merged, entry)
+				}
+			}
+		}
+		excluded = merged
+	} else if a.Attributes != nil {
+		// Fallback to pre-merged list if present (e.g. for compatibility virtual child auths or unit tests where Metadata is nil)
 		if val, ok := a.Attributes["excluded_models"]; ok && strings.TrimSpace(val) != "" {
 			excluded = strings.Split(val, ",")
 		}
@@ -1799,4 +1845,38 @@ func applyOAuthModelAlias(cfg *config.Config, provider, authKind string, models 
 		}
 	}
 	return out
+}
+
+func extractPerAccountExcludedModels(metadata map[string]any) []string {
+	if metadata == nil {
+		return nil
+	}
+	raw, ok := metadata["excluded_models"]
+	if !ok {
+		raw, ok = metadata["excluded-models"]
+	}
+	if !ok || raw == nil {
+		return nil
+	}
+	var stringSlice []string
+	switch v := raw.(type) {
+	case []string:
+		stringSlice = v
+	case []interface{}:
+		stringSlice = make([]string, 0, len(v))
+		for _, item := range v {
+			if s, ok := item.(string); ok {
+				stringSlice = append(stringSlice, s)
+			}
+		}
+	default:
+		return nil
+	}
+	result := make([]string, 0, len(stringSlice))
+	for _, s := range stringSlice {
+		if trimmed := strings.TrimSpace(s); trimmed != "" {
+			result = append(result, trimmed)
+		}
+	}
+	return result
 }
