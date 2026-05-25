@@ -24,6 +24,10 @@ CPA2API Backend operates as a proxy server middleware:
 
 Frontend control panel: https://github.com/skloxo/CPA2API-Manager
 
+## 🏷️ Version Info
+
+*   **Current Version**: `v7.1.20-s.1` (synchronized with upstream CLIProxyAPI `v7.1.20`)
+
 ## ⚖️ Legal Disclaimer
 
 > [!CAUTION]
