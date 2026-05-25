@@ -1,7 +1,6 @@
 services:
   cli-proxy-api:
-    image: ${CLI_PROXY_IMAGE:-eceasy/cli-proxy-api:latest}
-    pull_policy: always
+    image: eceasy/cli-proxy-api:v7.1.20-s.1
     build:
       context: .
       dockerfile: Dockerfile
@@ -10,6 +9,7 @@ services:
         COMMIT: ${COMMIT:-none}
         BUILD_DATE: ${BUILD_DATE:-unknown}
     container_name: cli-proxy-api
+    network_mode: host
     # env_file:
     #   - .env
     environment:
@@ -21,8 +21,10 @@ services:
       - "54545:54545"
       - "51121:51121"
       - "11451:11451"
+    user: "root"
     volumes:
-      - ${CLI_PROXY_CONFIG_PATH:-./config.yaml}:/CLIProxyAPI/config.yaml
+      - ${CLI_PROXY_CONFIG_PATH:-./config.yaml}:/app/config.yaml
       - ${CLI_PROXY_AUTH_PATH:-./auths}:/root/.cli-proxy-api
-      - ${CLI_PROXY_LOG_PATH:-./logs}:/CLIProxyAPI/logs
+      - ${CLI_PROXY_LOG_PATH:-./logs}:/app/logs
+      - /home/skloxo/cpa-official/management:/app/management
     restart: unless-stopped

@@ -229,9 +229,9 @@ func ConvertQwenResponseToOpenAI(ctx context.Context, model string, originalRequ
 	toolCallIdx := -1
 	isToolCallMode := false
 	if len(allowedNames) > 0 {
-		toolCallIdx = strings.Index(accumulated, "<tool_call")
+		toolCallIdx = strings.Index(accumulated, "<custom_tool_call")
 		if toolCallIdx < 0 {
-			toolCallIdx = strings.Index(accumulated, "<tool_calls>")
+			toolCallIdx = strings.Index(accumulated, "<custom_tool_calls>")
 		}
 		if stateMap != nil && stateMap["is_tool_call_mode"] == "true" {
 			isToolCallMode = true
@@ -573,9 +573,9 @@ func buildOpenAIToolCallStreamChunk(chunkID string, created int64, model string,
 func stripToolCallText(text string) string {
 	text = stripThinking(text)
 	// Strip XML
-	reXML := regexp.MustCompile(`(?s)<tool_calls>.*?</tool_calls>`)
+	reXML := regexp.MustCompile(`(?s)<(?:custom_)?tool_calls>.*?</(?:custom_)?tool_calls>`)
 	text = reXML.ReplaceAllString(text, "")
-	reXML2 := regexp.MustCompile(`(?s)<tool_call.*?>.*?</tool_call>`)
+	reXML2 := regexp.MustCompile(`(?s)<(?:custom_)?tool_call.*?>.*?</(?:custom_)?tool_call>`)
 	text = reXML2.ReplaceAllString(text, "")
 
 	// Strip bracket format
@@ -591,7 +591,7 @@ func stripToolCallText(text string) string {
 	text = reMarker.ReplaceAllString(text, "")
 
 	// Strip code block format
-	reCode := regexp.MustCompile("(?s)```tool_call.*?```")
+	reCode := regexp.MustCompile("(?s)```(?:custom_)?tool_call.*?```")
 	text = reCode.ReplaceAllString(text, "")
 
 	return strings.TrimSpace(text)

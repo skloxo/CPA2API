@@ -101,18 +101,18 @@ func FormatToolDefinitionsForQwen(tools []map[string]interface{}) string {
 func BuildRequiredRetryPrompt(forcedName string) string {
 	if forcedName != "" {
 		return fmt.Sprintf(
-			"You MUST call the tool `%s` immediately using the `<tool_call>` XML format and nothing else.",
+			"You MUST call the tool `%s` immediately using the `<custom_tool_call>` XML format and nothing else.",
 			forcedName)
 	}
 	return "You did not call any tool in your previous reply. " +
-		"You MUST now call exactly one tool using the `<tool_call>` XML format and nothing else."
+		"You MUST now call exactly one tool using the `<custom_tool_call>` XML format and nothing else."
 }
 
 // InjectFormatReminder appends a format correction reminder to the prompt.
 func InjectFormatReminder(prompt, toolName string) string {
 	reminder := fmt.Sprintf(
 		"\n\nIMPORTANT: Tool `%s` is fully available. You MUST invoke it using "+
-			"the `<tool_call>` XML format. Claims about the tool being unavailable, missing, "+
+			"the `<custom_tool_call>` XML format. Claims about the tool being unavailable, missing, "+
 			"or non-existent are INCORRECT. The following are ABSOLUTELY FORBIDDEN in your next output:\n"+
 			"- Any disclaimer about a tool being unavailable, missing, or unregistered\n"+
 			"- Any sentence claiming you are unable to run a function\n"+
@@ -446,9 +446,9 @@ func NormalizeToolName(name string, allowedNames []string) string {
 // Format 1: XML parser
 // ────────────────────────────────────────────────────────────────────
 
-var reXMLToolCallsWrapper = regexp.MustCompile(`(?s)<tool_calls>(.*?)</tool_calls>`)
-var reXMLToolCallSingle = regexp.MustCompile(`(?s)<tool_call\s+name=["']([^"']+)["']\s*>(.*?)</tool_call>`)
-var reXMLToolCallBare = regexp.MustCompile(`(?s)<tool_call\s+name=["']([^"']+)["']\s*>(.*?)</tool_call>`)
+var reXMLToolCallsWrapper = regexp.MustCompile(`(?s)<(?:custom_)?tool_calls>(.*?)</(?:custom_)?tool_calls>`)
+var reXMLToolCallSingle = regexp.MustCompile(`(?s)<(?:custom_)?tool_call\s+name=["']([^"']+)["']\s*>(.*?)</(?:custom_)?tool_call>`)
+var reXMLToolCallBare = regexp.MustCompile(`(?s)<(?:custom_)?tool_call\s+name=["']([^"']+)["']\s*>(.*?)</(?:custom_)?tool_call>`)
 
 func parseXMLFormat(text string, allowedNames []string) []ToolCall {
 	// Try wrapped <tool_calls> first
@@ -698,10 +698,10 @@ func BuildToolSystemPrompt(tools []map[string]interface{}, toolChoice interface{
 	var b strings.Builder
 	b.WriteString("## Tools\n\n")
 	b.WriteString("You can call a set of tools to perform actions or fetch information. ")
-	b.WriteString("To call a tool, you MUST use the following standard `<tool_call>` XML format:\n")
-	b.WriteString("```xml\n<tool_call name=\"ToolName\">\n")
+	b.WriteString("To call a tool, you MUST use the following standard `<custom_tool_call>` XML format:\n")
+	b.WriteString("```xml\n<custom_tool_call name=\"ToolName\">\n")
 	b.WriteString("{\n  \"arg1\": \"value1\"\n}\n")
-	b.WriteString("</tool_call>\n```\n\n")
+	b.WriteString("</custom_tool_call>\n```\n\n")
 	b.WriteString("Here is the list of available tools in standard TypeScript/JSON definitions:\n\n")
 
 	for _, tool := range tools {
@@ -858,7 +858,7 @@ type IncrementalToolCall struct {
 	IsComplete bool
 }
 
-// ParseIncrementalToolCalls scans the accumulated string to find all <tool_call ...> blocks,
+// ParseIncrementalToolCalls scans the accumulated string to find all <custom_tool_call ...> blocks,
 // including incomplete ones, and tracks their bounds and extracts their parameters.
 func ParseIncrementalToolCalls(accumulated string, allowedNames []string) []IncrementalToolCall {
 	var toolCalls []IncrementalToolCall
@@ -869,15 +869,15 @@ func ParseIncrementalToolCalls(accumulated string, allowedNames []string) []Incr
 		if pos >= len(accumulated) {
 			break
 		}
-		startIdx := strings.Index(accumulated[pos:], "<tool_call")
+		startIdx := strings.Index(accumulated[pos:], "<custom_tool_call")
 		if startIdx == -1 {
 			break
 		}
 		absoluteStartIdx := pos + startIdx
 
-		// Skip the wrapper <tool_calls> tag if matched
-		if len(accumulated) > absoluteStartIdx+len("<tool_call") && accumulated[absoluteStartIdx+len("<tool_call")] == 's' {
-			pos = absoluteStartIdx + len("<tool_calls")
+		// Skip the wrapper <custom_tool_calls> tag if matched
+		if len(accumulated) > absoluteStartIdx+len("<custom_tool_call") && accumulated[absoluteStartIdx+len("<custom_tool_call")] == 's' {
+			pos = absoluteStartIdx + len("<custom_tool_calls")
 			continue
 		}
 
@@ -923,24 +923,24 @@ func ParseIncrementalToolCalls(accumulated string, allowedNames []string) []Incr
 			absoluteCloseTagIdx := argsStartIdx + closeTagIdx
 			endIdx = absoluteCloseTagIdx
 			restOfTag := accumulated[absoluteCloseTagIdx:]
-			if strings.HasPrefix(restOfTag, "</tool_call>") || strings.HasPrefix(restOfTag, "</tool_calls>") {
+			if strings.HasPrefix(restOfTag, "</custom_tool_call>") || strings.HasPrefix(restOfTag, "</custom_tool_calls>") {
 				isComplete = true
 			}
 		} else {
-			// Check if there is another `<tool_call` ahead (making sure to skip `<tool_calls>` wrapper)
+			// Check if there is another `<custom_tool_call` ahead (making sure to skip `<custom_tool_calls>` wrapper)
 			nextIdx := argsStartIdx
 			for {
-				nextTCIdx := strings.Index(accumulated[nextIdx:], "<tool_call")
+				nextTCIdx := strings.Index(accumulated[nextIdx:], "<custom_tool_call")
 				if nextTCIdx == -1 {
 					break
 				}
 				absNextTCIdx := nextIdx + nextTCIdx
-				// Check if this is `<tool_calls>`
-				if len(accumulated) > absNextTCIdx+len("<tool_call") && accumulated[absNextTCIdx+len("<tool_call")] == 's' {
-					nextIdx = absNextTCIdx + len("<tool_calls")
+				// Check if this is `<custom_tool_calls>`
+				if len(accumulated) > absNextTCIdx+len("<custom_tool_call") && accumulated[absNextTCIdx+len("<custom_tool_call")] == 's' {
+					nextIdx = absNextTCIdx + len("<custom_tool_calls")
 					continue
 				}
-				// It's a real next `<tool_call`, so truncate arguments here and mark as complete
+				// It's a real next `<custom_tool_call`, so truncate arguments here and mark as complete
 				endIdx = absNextTCIdx
 				isComplete = true
 				break
@@ -959,10 +959,10 @@ func ParseIncrementalToolCalls(accumulated string, allowedNames []string) []Incr
 		index++
 		if isComplete && closeTagIdx != -1 {
 			restOfTag := accumulated[argsStartIdx+closeTagIdx:]
-			if strings.HasPrefix(restOfTag, "</tool_calls>") {
-				pos = argsStartIdx + closeTagIdx + len("</tool_calls>")
+			if strings.HasPrefix(restOfTag, "</custom_tool_calls>") {
+				pos = argsStartIdx + closeTagIdx + len("</custom_tool_calls>")
 			} else {
-				pos = argsStartIdx + closeTagIdx + len("</tool_call>")
+				pos = argsStartIdx + closeTagIdx + len("</custom_tool_call>")
 			}
 		} else {
 			pos = endIdx
