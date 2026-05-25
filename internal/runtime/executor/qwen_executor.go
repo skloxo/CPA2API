@@ -27,6 +27,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -44,11 +45,39 @@ import (
 	"github.com/tidwall/sjson"
 )
 
-// QwenExecutor is a stateless executor for Qwen API using chat completions.
+// preheatQueue holds pre-created chat_ids for a specific credential (Auth ID).
+type preheatQueue struct {
+	mu         sync.Mutex
+	chatIDs    []string
+	lastActive time.Time
+	active     bool
+	auth       *cliproxyauth.Auth
+}
+
+// Pop retrieves a preheated chat_id from the queue if available.
+func (q *preheatQueue) Pop() string {
+	if q == nil {
+		return ""
+	}
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.lastActive = time.Now()
+	if len(q.chatIDs) == 0 {
+		return ""
+	}
+	id := q.chatIDs[0]
+	q.chatIDs = q.chatIDs[1:]
+	return id
+}
+
+// QwenExecutor is an executor for Qwen API using chat completions, supporting chat_id preheating.
 type QwenExecutor struct {
 	ClaudeExecutor
-	cfg       *config.Config
-	modelDisc *QwenModelDiscovery
+	cfg           *config.Config
+	modelDisc     *QwenModelDiscovery
+	pools         map[string]*preheatQueue
+	preheatMu     sync.Mutex
+	createChatIDF func(ctx context.Context, auth *cliproxyauth.Auth) (string, error) // For testing overrides
 }
 
 // NewQwenExecutor creates a new Qwen executor.
@@ -57,6 +86,7 @@ func NewQwenExecutor(cfg *config.Config) *QwenExecutor {
 	e := &QwenExecutor{
 		cfg:       cfg,
 		modelDisc: NewQwenModelDiscovery(cfg),
+		pools:     make(map[string]*preheatQueue),
 	}
 	return e
 }
@@ -691,12 +721,108 @@ func (e *QwenExecutor) getIncomingChatID(req cliproxyexecutor.Request, opts clip
 	return ""
 }
 
+// getPreheatQueue retrieves or initializes the preheatQueue for a given credential,
+// starting the background preheat worker if not already running.
+func (e *QwenExecutor) getPreheatQueue(auth *cliproxyauth.Auth) *preheatQueue {
+	if auth == nil {
+		return nil
+	}
+	e.preheatMu.Lock()
+	q, ok := e.pools[auth.ID]
+	if !ok {
+		q = &preheatQueue{
+			lastActive: time.Now(),
+			auth:       auth,
+		}
+		e.pools[auth.ID] = q
+	}
+	q.mu.Lock()
+	q.lastActive = time.Now()
+	q.auth = auth // In case credentials or tokens are hot-swapped
+	isActive := q.active
+	q.mu.Unlock()
+	e.preheatMu.Unlock()
+
+	if !isActive {
+		q.mu.Lock()
+		if !q.active {
+			q.active = true
+			go e.preheatWorker(auth.ID, q)
+		}
+		q.mu.Unlock()
+	}
+	return q
+}
+
+// preheatWorker executes a background worker loop to preheat up to 5 chat IDs.
+// It stops and cleans itself up if the queue is inactive for more than 5 minutes.
+func (e *QwenExecutor) preheatWorker(authID string, q *preheatQueue) {
+	log.Debugf("qwen executor: starting background chat_id preheat worker for auth %s", authID)
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		q.mu.Lock()
+		// If inactive for > 5 minutes, stop the worker and clean up
+		if time.Since(q.lastActive) > 5*time.Minute {
+			q.active = false
+			q.mu.Unlock()
+
+			e.preheatMu.Lock()
+			if currentQ, exists := e.pools[authID]; exists && currentQ == q {
+				delete(e.pools, authID)
+			}
+			e.preheatMu.Unlock()
+
+			log.Debugf("qwen executor: stopping idle chat_id preheat worker for auth %s", authID)
+			return
+		}
+
+		currentCount := len(q.chatIDs)
+		auth := q.auth
+		q.mu.Unlock()
+
+		if currentCount < 5 && auth != nil {
+			// Limit timeout for background HTTP requests
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			chatID, err := e.createChatID(ctx, auth)
+			cancel()
+
+			if err == nil {
+				q.mu.Lock()
+				if len(q.chatIDs) < 5 {
+					q.chatIDs = append(q.chatIDs, chatID)
+					log.Debugf("qwen executor: preheated chat_id=%s for auth %s (pool size: %d)", chatID, authID, len(q.chatIDs))
+				}
+				q.mu.Unlock()
+			} else {
+				log.Debugf("qwen executor: background chat preheating failed for auth %s: %v", authID, err)
+				// Backoff on error to prevent CPU/network spinning
+				time.Sleep(2 * time.Second)
+			}
+		}
+
+		select {
+		case <-ticker.C:
+		}
+	}
+}
+
 // resolveChatID returns a stable chat_id for session affinity.
-// If auth metadata contains a stored chat_id, it is reused; otherwise a new chat_id
-// is obtained from the Qwen API (/api/v2/chats/new) and persisted for subsequent requests.
-// If the API call fails, a locally-generated UUID is used as fallback (Qwen accepts any UUID).
+// It retrieves a preheated chat_id from the FIFO queue; if none are available,
+// it falls back to creating one synchronously. If that fails, it falls back to a local UUID.
 func (e *QwenExecutor) resolveChatID(ctx context.Context, auth *cliproxyauth.Auth) (string, error) {
-	// Always generate a fresh chat_id via Qwen API or fallback to local UUID
+	if auth == nil {
+		return generateLocalChatID(), nil
+	}
+
+	q := e.getPreheatQueue(auth)
+	if chatID := q.Pop(); chatID != "" {
+		log.Debugf("qwen executor: using preheated chat_id=%s for auth %s", chatID, auth.ID)
+		return chatID, nil
+	}
+
+	log.Debugf("qwen executor: no preheated chat_id available for auth %s, creating synchronously", auth.ID)
 	chatID, err := e.createChatID(ctx, auth)
 	if err != nil {
 		log.Debugf("qwen executor: createChatID failed (%v), using local UUID fallback", err)
@@ -708,6 +834,9 @@ func (e *QwenExecutor) resolveChatID(ctx context.Context, auth *cliproxyauth.Aut
 // createChatID calls the Qwen API to create a new chat session and returns its chat_id.
 // POST https://chat.qwen.ai/api/v2/chats/new
 func (e *QwenExecutor) createChatID(ctx context.Context, auth *cliproxyauth.Auth) (string, error) {
+	if e.createChatIDF != nil {
+		return e.createChatIDF(ctx, auth)
+	}
 	token, cookie := qwenCreds(auth)
 	if token == "" {
 		return "", fmt.Errorf("qwen executor: no access token available for chat creation")
@@ -830,6 +959,12 @@ func (e *QwenExecutor) Refresh(ctx context.Context, auth *cliproxyauth.Auth) (*c
 	e.modelDisc.SetCredentials(result.Token, qwenCookie(auth))
 
 	return auth, nil
+}
+
+// RefreshLead returns the duration before token expiry when refresh should occur.
+func (e *QwenExecutor) RefreshLead() *time.Duration {
+	lead := 5 * time.Minute
+	return &lead
 }
 
 // qwenCreds extracts the access token and cookie from auth.

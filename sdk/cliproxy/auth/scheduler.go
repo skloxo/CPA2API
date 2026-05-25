@@ -37,6 +37,7 @@ type authScheduler struct {
 	providers     map[string]*providerScheduler
 	authProviders map[string]string
 	mixedCursors  map[string]int
+	concurrency   *ConcurrencySlotManager
 }
 
 // providerScheduler stores auth metadata and model shards for a single provider.
@@ -256,7 +257,26 @@ func (s *authScheduler) pickSingle(ctx context.Context, provider, model string, 
 	if shard == nil {
 		return nil, &Error{Code: "auth_not_found", Message: "no auth available"}
 	}
-	predicate := func(entry *scheduledAuth) bool {
+
+	predicateWithSlot := func(entry *scheduledAuth) bool {
+		if entry == nil || entry.auth == nil {
+			return false
+		}
+		if pinnedAuthID != "" && entry.auth.ID != pinnedAuthID {
+			return false
+		}
+		if len(tried) > 0 {
+			if _, ok := tried[entry.auth.ID]; ok {
+				return false
+			}
+		}
+		if s.concurrency != nil && !s.concurrency.HasAvailableSlot(entry.auth) {
+			return false
+		}
+		return true
+	}
+
+	predicateWithoutSlot := func(entry *scheduledAuth) bool {
 		if entry == nil || entry.auth == nil {
 			return false
 		}
@@ -270,10 +290,14 @@ func (s *authScheduler) pickSingle(ctx context.Context, provider, model string, 
 		}
 		return true
 	}
-	if picked := shard.pickReadyLocked(preferWebsocket, s.strategy, predicate); picked != nil {
+
+	if picked := shard.pickReadyLocked(preferWebsocket, s.strategy, predicateWithSlot); picked != nil {
 		return picked, nil
 	}
-	return nil, shard.unavailableErrorLocked(provider, model, predicate)
+	if picked := shard.pickReadyLocked(preferWebsocket, s.strategy, predicateWithoutSlot); picked != nil {
+		return picked, nil
+	}
+	return nil, shard.unavailableErrorLocked(provider, model, predicateWithoutSlot)
 }
 
 // pickMixed returns the next auth and provider for a mixed-provider request.
@@ -281,6 +305,15 @@ func (s *authScheduler) pickMixed(ctx context.Context, providers []string, model
 	if s == nil {
 		return nil, "", &Error{Code: "auth_not_found", Message: "no auth available"}
 	}
+	if s.concurrency != nil {
+		if picked, providerKey, err := s.pickMixedInternal(ctx, providers, model, opts, tried, true); err == nil {
+			return picked, providerKey, nil
+		}
+	}
+	return s.pickMixedInternal(ctx, providers, model, opts, tried, false)
+}
+
+func (s *authScheduler) pickMixedInternal(ctx context.Context, providers []string, model string, opts cliproxyexecutor.Options, tried map[string]struct{}, checkSlots bool) (*Auth, string, error) {
 	normalized := normalizeProviderKeys(providers)
 	if len(normalized) == 0 {
 		return nil, "", &Error{Code: "provider_not_found", Message: "no provider supplied"}
@@ -317,11 +350,15 @@ func (s *authScheduler) pickMixed(ctx context.Context, providers []string, model
 			if entry == nil || entry.auth == nil || entry.auth.ID != pinnedAuthID {
 				return false
 			}
-			if len(tried) == 0 {
-				return true
+			if len(tried) > 0 {
+				if _, ok := tried[pinnedAuthID]; ok {
+					return false
+				}
 			}
-			_, ok := tried[pinnedAuthID]
-			return !ok
+			if checkSlots && s.concurrency != nil && !s.concurrency.HasAvailableSlot(entry.auth) {
+				return false
+			}
+			return true
 		}
 		if picked := shard.pickReadyLocked(false, s.strategy, predicate); picked != nil {
 			return picked, providerKey, nil
@@ -329,7 +366,21 @@ func (s *authScheduler) pickMixed(ctx context.Context, providers []string, model
 		return nil, "", shard.unavailableErrorLocked("mixed", model, predicate)
 	}
 
-	predicate := triedPredicate(tried)
+	predicate := func(entry *scheduledAuth) bool {
+		if entry == nil || entry.auth == nil {
+			return false
+		}
+		if len(tried) > 0 {
+			if _, ok := tried[entry.auth.ID]; ok {
+				return false
+			}
+		}
+		if checkSlots && s.concurrency != nil && !s.concurrency.HasAvailableSlot(entry.auth) {
+			return false
+		}
+		return true
+	}
+
 	candidateShards := make([]*modelScheduler, len(normalized))
 	bestPriority := 0
 	hasCandidate := false

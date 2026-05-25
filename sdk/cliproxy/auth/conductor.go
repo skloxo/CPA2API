@@ -191,6 +191,7 @@ type Manager struct {
 	refreshLoop   *authAutoRefreshLoop
 
 	requestPrepareLocks sync.Map
+	concurrency         *ConcurrencySlotManager
 }
 
 // NewManager constructs a manager with optional custom selector and hook.
@@ -210,11 +211,13 @@ func NewManager(store Store, selector Selector, hook Hook) *Manager {
 		homeRuntimeAuths: make(map[string]map[string]*Auth),
 		providerOffsets:  make(map[string]int),
 		modelPoolOffsets: make(map[string]int),
+		concurrency:      NewConcurrencySlotManager(),
 	}
 	// atomic.Value requires non-nil initial value.
 	manager.runtimeConfig.Store(&internalconfig.Config{})
 	manager.apiKeyModelAlias.Store(apiKeyModelAliasTable(nil))
 	manager.scheduler = newAuthScheduler(selector)
+	manager.scheduler.concurrency = manager.concurrency
 	return manager
 }
 
@@ -1357,71 +1360,91 @@ func (m *Manager) executeMixedOnce(ctx context.Context, providers []string, req 
 			return cliproxyexecutor.Response{}, errPick
 		}
 
-		entry := logEntryWithRequestID(ctx)
-		debugLogAuthSelection(entry, auth, provider, req.Model)
-		publishSelectedAuthMetadata(opts.Metadata, auth.ID)
-
-		tried[auth.ID] = struct{}{}
-		execCtx := ctx
-		if rt := m.roundTripperFor(auth); rt != nil {
-			execCtx = context.WithValue(execCtx, roundTripperContextKey{}, rt)
-			execCtx = context.WithValue(execCtx, "cliproxy.roundtripper", rt)
-		}
-		execCtx = contextWithRequestedModelAlias(execCtx, opts, routeModel)
-
-		models, pooled := m.preparedExecutionModels(auth, routeModel)
-		if len(models) == 0 {
-			continue
-		}
-		attempted[auth.ID] = struct{}{}
-		var errPrepare error
-		auth, errPrepare = m.prepareRequestAuth(execCtx, executor, auth)
-		if errPrepare != nil {
-			result := Result{AuthID: auth.ID, Provider: provider, Model: routeModel, Success: false, Error: &Error{Message: errPrepare.Error()}}
-			if se, ok := errors.AsType[cliproxyexecutor.StatusError](errPrepare); ok && se != nil {
-				result.Error.HTTPStatus = se.StatusCode()
+		timeout := GetConcurrencyTimeout(opts)
+		if !m.concurrency.WaitAcquire(ctx, auth, timeout) {
+			return cliproxyexecutor.Response{}, &Error{
+				Code:       "rate_limit_exceeded",
+				Message:    "concurrency slot acquisition timeout",
+				HTTPStatus: http.StatusTooManyRequests,
 			}
-			m.MarkResult(execCtx, result)
-			lastErr = errPrepare
-			continue
 		}
-		var authErr error
-		for _, upstreamModel := range models {
-			resultModel := m.stateModelForExecution(auth, routeModel, upstreamModel, pooled)
-			execReq := req
-			execReq.Model = upstreamModel
-			resp, errExec := executor.Execute(execCtx, auth, execReq, opts)
-			result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, Success: errExec == nil}
-			if errExec != nil {
-				if errCtx := execCtx.Err(); errCtx != nil {
-					return cliproxyexecutor.Response{}, errCtx
-				}
-				result.Error = &Error{Message: errExec.Error()}
-				if se, ok := errors.AsType[cliproxyexecutor.StatusError](errExec); ok && se != nil {
+
+		resp, shouldContinue, err := func() (cliproxyexecutor.Response, bool, error) {
+			defer m.concurrency.Release(auth)
+
+			entry := logEntryWithRequestID(ctx)
+			debugLogAuthSelection(entry, auth, provider, req.Model)
+			publishSelectedAuthMetadata(opts.Metadata, auth.ID)
+
+			tried[auth.ID] = struct{}{}
+			execCtx := ctx
+			if rt := m.roundTripperFor(auth); rt != nil {
+				execCtx = context.WithValue(execCtx, roundTripperContextKey{}, rt)
+				execCtx = context.WithValue(execCtx, "cliproxy.roundtripper", rt)
+			}
+			execCtx = contextWithRequestedModelAlias(execCtx, opts, routeModel)
+
+			models, pooled := m.preparedExecutionModels(auth, routeModel)
+			if len(models) == 0 {
+				return cliproxyexecutor.Response{}, true, nil
+			}
+			attempted[auth.ID] = struct{}{}
+			var errPrepare error
+			auth, errPrepare = m.prepareRequestAuth(execCtx, executor, auth)
+			if errPrepare != nil {
+				result := Result{AuthID: auth.ID, Provider: provider, Model: routeModel, Success: false, Error: &Error{Message: errPrepare.Error()}}
+				if se, ok := errors.AsType[cliproxyexecutor.StatusError](errPrepare); ok && se != nil {
 					result.Error.HTTPStatus = se.StatusCode()
 				}
-				if ra := retryAfterFromError(errExec); ra != nil {
-					result.RetryAfter = ra
+				m.MarkResult(execCtx, result)
+				lastErr = errPrepare
+				return cliproxyexecutor.Response{}, true, nil
+			}
+			var authErr error
+			for _, upstreamModel := range models {
+				resultModel := m.stateModelForExecution(auth, routeModel, upstreamModel, pooled)
+				execReq := req
+				execReq.Model = upstreamModel
+				resp, errExec := executor.Execute(execCtx, auth, execReq, opts)
+				result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, Success: errExec == nil}
+				if errExec != nil {
+					if errCtx := execCtx.Err(); errCtx != nil {
+						return cliproxyexecutor.Response{}, false, errCtx
+					}
+					result.Error = &Error{Message: errExec.Error()}
+					if se, ok := errors.AsType[cliproxyexecutor.StatusError](errExec); ok && se != nil {
+						result.Error.HTTPStatus = se.StatusCode()
+					}
+					if ra := retryAfterFromError(errExec); ra != nil {
+						result.RetryAfter = ra
+					}
+					m.MarkResult(execCtx, result)
+					if isRequestInvalidError(errExec) {
+						return cliproxyexecutor.Response{}, false, errExec
+					}
+					authErr = errExec
+					continue
 				}
 				m.MarkResult(execCtx, result)
-				if isRequestInvalidError(errExec) {
-					return cliproxyexecutor.Response{}, errExec
+				return resp, false, nil
+			}
+			if authErr != nil {
+				if isRequestInvalidError(authErr) {
+					return cliproxyexecutor.Response{}, false, authErr
 				}
-				authErr = errExec
-				continue
+				lastErr = authErr
+				if homeMode {
+					homeAuthCount++
+				}
+				return cliproxyexecutor.Response{}, true, nil
 			}
-			m.MarkResult(execCtx, result)
-			return resp, nil
+			return cliproxyexecutor.Response{}, true, nil
+		}()
+		if err != nil {
+			return cliproxyexecutor.Response{}, err
 		}
-		if authErr != nil {
-			if isRequestInvalidError(authErr) {
-				return cliproxyexecutor.Response{}, authErr
-			}
-			lastErr = authErr
-			if homeMode {
-				homeAuthCount++
-			}
-			continue
+		if !shouldContinue {
+			return resp, nil
 		}
 	}
 }
@@ -1456,71 +1479,91 @@ func (m *Manager) executeCountMixedOnce(ctx context.Context, providers []string,
 			return cliproxyexecutor.Response{}, errPick
 		}
 
-		entry := logEntryWithRequestID(ctx)
-		debugLogAuthSelection(entry, auth, provider, req.Model)
-		publishSelectedAuthMetadata(opts.Metadata, auth.ID)
-
-		tried[auth.ID] = struct{}{}
-		execCtx := ctx
-		if rt := m.roundTripperFor(auth); rt != nil {
-			execCtx = context.WithValue(execCtx, roundTripperContextKey{}, rt)
-			execCtx = context.WithValue(execCtx, "cliproxy.roundtripper", rt)
-		}
-		execCtx = contextWithRequestedModelAlias(execCtx, opts, routeModel)
-
-		models, pooled := m.preparedExecutionModels(auth, routeModel)
-		if len(models) == 0 {
-			continue
-		}
-		attempted[auth.ID] = struct{}{}
-		var errPrepare error
-		auth, errPrepare = m.prepareRequestAuth(execCtx, executor, auth)
-		if errPrepare != nil {
-			result := Result{AuthID: auth.ID, Provider: provider, Model: routeModel, Success: false, Error: &Error{Message: errPrepare.Error()}}
-			if se, ok := errors.AsType[cliproxyexecutor.StatusError](errPrepare); ok && se != nil {
-				result.Error.HTTPStatus = se.StatusCode()
+		timeout := GetConcurrencyTimeout(opts)
+		if !m.concurrency.WaitAcquire(ctx, auth, timeout) {
+			return cliproxyexecutor.Response{}, &Error{
+				Code:       "rate_limit_exceeded",
+				Message:    "concurrency slot acquisition timeout",
+				HTTPStatus: http.StatusTooManyRequests,
 			}
-			m.MarkResult(execCtx, result)
-			lastErr = errPrepare
-			continue
 		}
-		var authErr error
-		for _, upstreamModel := range models {
-			resultModel := m.stateModelForExecution(auth, routeModel, upstreamModel, pooled)
-			execReq := req
-			execReq.Model = upstreamModel
-			resp, errExec := executor.CountTokens(execCtx, auth, execReq, opts)
-			result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, Success: errExec == nil}
-			if errExec != nil {
-				if errCtx := execCtx.Err(); errCtx != nil {
-					return cliproxyexecutor.Response{}, errCtx
-				}
-				result.Error = &Error{Message: errExec.Error()}
-				if se, ok := errors.AsType[cliproxyexecutor.StatusError](errExec); ok && se != nil {
+
+		resp, shouldContinue, err := func() (cliproxyexecutor.Response, bool, error) {
+			defer m.concurrency.Release(auth)
+
+			entry := logEntryWithRequestID(ctx)
+			debugLogAuthSelection(entry, auth, provider, req.Model)
+			publishSelectedAuthMetadata(opts.Metadata, auth.ID)
+
+			tried[auth.ID] = struct{}{}
+			execCtx := ctx
+			if rt := m.roundTripperFor(auth); rt != nil {
+				execCtx = context.WithValue(execCtx, roundTripperContextKey{}, rt)
+				execCtx = context.WithValue(execCtx, "cliproxy.roundtripper", rt)
+			}
+			execCtx = contextWithRequestedModelAlias(execCtx, opts, routeModel)
+
+			models, pooled := m.preparedExecutionModels(auth, routeModel)
+			if len(models) == 0 {
+				return cliproxyexecutor.Response{}, true, nil
+			}
+			attempted[auth.ID] = struct{}{}
+			var errPrepare error
+			auth, errPrepare = m.prepareRequestAuth(execCtx, executor, auth)
+			if errPrepare != nil {
+				result := Result{AuthID: auth.ID, Provider: provider, Model: routeModel, Success: false, Error: &Error{Message: errPrepare.Error()}}
+				if se, ok := errors.AsType[cliproxyexecutor.StatusError](errPrepare); ok && se != nil {
 					result.Error.HTTPStatus = se.StatusCode()
 				}
-				if ra := retryAfterFromError(errExec); ra != nil {
-					result.RetryAfter = ra
+				m.MarkResult(execCtx, result)
+				lastErr = errPrepare
+				return cliproxyexecutor.Response{}, true, nil
+			}
+			var authErr error
+			for _, upstreamModel := range models {
+				resultModel := m.stateModelForExecution(auth, routeModel, upstreamModel, pooled)
+				execReq := req
+				execReq.Model = upstreamModel
+				resp, errExec := executor.CountTokens(execCtx, auth, execReq, opts)
+				result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, Success: errExec == nil}
+				if errExec != nil {
+					if errCtx := execCtx.Err(); errCtx != nil {
+						return cliproxyexecutor.Response{}, false, errCtx
+					}
+					result.Error = &Error{Message: errExec.Error()}
+					if se, ok := errors.AsType[cliproxyexecutor.StatusError](errExec); ok && se != nil {
+						result.Error.HTTPStatus = se.StatusCode()
+					}
+					if ra := retryAfterFromError(errExec); ra != nil {
+						result.RetryAfter = ra
+					}
+					m.MarkResult(execCtx, result)
+					if isRequestInvalidError(errExec) {
+						return cliproxyexecutor.Response{}, false, errExec
+					}
+					authErr = errExec
+					continue
 				}
 				m.MarkResult(execCtx, result)
-				if isRequestInvalidError(errExec) {
-					return cliproxyexecutor.Response{}, errExec
+				return resp, false, nil
+			}
+			if authErr != nil {
+				if isRequestInvalidError(authErr) {
+					return cliproxyexecutor.Response{}, false, authErr
 				}
-				authErr = errExec
-				continue
+				lastErr = authErr
+				if homeMode {
+					homeAuthCount++
+				}
+				return cliproxyexecutor.Response{}, true, nil
 			}
-			m.MarkResult(execCtx, result)
-			return resp, nil
+			return cliproxyexecutor.Response{}, true, nil
+		}()
+		if err != nil {
+			return cliproxyexecutor.Response{}, err
 		}
-		if authErr != nil {
-			if isRequestInvalidError(authErr) {
-				return cliproxyexecutor.Response{}, authErr
-			}
-			lastErr = authErr
-			if homeMode {
-				homeAuthCount++
-			}
-			continue
+		if !shouldContinue {
+			return resp, nil
 		}
 	}
 }
@@ -1555,47 +1598,87 @@ func (m *Manager) executeStreamMixedOnce(ctx context.Context, providers []string
 			return nil, errPick
 		}
 
-		entry := logEntryWithRequestID(ctx)
-		debugLogAuthSelection(entry, auth, provider, req.Model)
-		publishSelectedAuthMetadata(opts.Metadata, auth.ID)
+		timeout := GetConcurrencyTimeout(opts)
+		if !m.concurrency.WaitAcquire(ctx, auth, timeout) {
+			return nil, &Error{
+				Code:       "rate_limit_exceeded",
+				Message:    "concurrency slot acquisition timeout",
+				HTTPStatus: http.StatusTooManyRequests,
+			}
+		}
 
-		tried[auth.ID] = struct{}{}
-		execCtx := ctx
-		if rt := m.roundTripperFor(auth); rt != nil {
-			execCtx = context.WithValue(execCtx, roundTripperContextKey{}, rt)
-			execCtx = context.WithValue(execCtx, "cliproxy.roundtripper", rt)
-		}
-		models, pooled := m.preparedExecutionModels(auth, routeModel)
-		if len(models) == 0 {
-			continue
-		}
-		attempted[auth.ID] = struct{}{}
-		var errPrepare error
-		auth, errPrepare = m.prepareRequestAuth(execCtx, executor, auth)
-		if errPrepare != nil {
-			result := Result{AuthID: auth.ID, Provider: provider, Model: routeModel, Success: false, Error: &Error{Message: errPrepare.Error()}}
-			if se, ok := errors.AsType[cliproxyexecutor.StatusError](errPrepare); ok && se != nil {
-				result.Error.HTTPStatus = se.StatusCode()
+		streamResult, shouldContinue, err := func() (*cliproxyexecutor.StreamResult, bool, error) {
+			released := false
+			defer func() {
+				if !released {
+					m.concurrency.Release(auth)
+				}
+			}()
+
+			entry := logEntryWithRequestID(ctx)
+			debugLogAuthSelection(entry, auth, provider, req.Model)
+			publishSelectedAuthMetadata(opts.Metadata, auth.ID)
+
+			tried[auth.ID] = struct{}{}
+			execCtx := ctx
+			if rt := m.roundTripperFor(auth); rt != nil {
+				execCtx = context.WithValue(execCtx, roundTripperContextKey{}, rt)
+				execCtx = context.WithValue(execCtx, "cliproxy.roundtripper", rt)
 			}
-			m.MarkResult(execCtx, result)
-			lastErr = errPrepare
-			continue
+			models, pooled := m.preparedExecutionModels(auth, routeModel)
+			if len(models) == 0 {
+				return nil, true, nil
+			}
+			attempted[auth.ID] = struct{}{}
+			var errPrepare error
+			auth, errPrepare = m.prepareRequestAuth(execCtx, executor, auth)
+			if errPrepare != nil {
+				result := Result{AuthID: auth.ID, Provider: provider, Model: routeModel, Success: false, Error: &Error{Message: errPrepare.Error()}}
+				if se, ok := errors.AsType[cliproxyexecutor.StatusError](errPrepare); ok && se != nil {
+					result.Error.HTTPStatus = se.StatusCode()
+				}
+				m.MarkResult(execCtx, result)
+				lastErr = errPrepare
+				return nil, true, nil
+			}
+			sRes, errStream := m.executeStreamWithModelPool(execCtx, executor, auth, provider, req, opts, routeModel, models, pooled)
+			if errStream != nil {
+				if errCtx := execCtx.Err(); errCtx != nil {
+					return nil, false, errCtx
+				}
+				if isRequestInvalidError(errStream) {
+					return nil, false, errStream
+				}
+				lastErr = errStream
+				if homeMode {
+					homeAuthCount++
+				}
+				return nil, true, nil
+			}
+
+			released = true
+			origChunks := sRes.Chunks
+			proxyChunks := make(chan cliproxyexecutor.StreamChunk)
+			go func() {
+				defer m.concurrency.Release(auth)
+				defer close(proxyChunks)
+				for chunk := range origChunks {
+					select {
+					case proxyChunks <- chunk:
+					case <-execCtx.Done():
+						return
+					}
+				}
+			}()
+			sRes.Chunks = proxyChunks
+			return sRes, false, nil
+		}()
+		if err != nil {
+			return nil, err
 		}
-		streamResult, errStream := m.executeStreamWithModelPool(execCtx, executor, auth, provider, req, opts, routeModel, models, pooled)
-		if errStream != nil {
-			if errCtx := execCtx.Err(); errCtx != nil {
-				return nil, errCtx
-			}
-			if isRequestInvalidError(errStream) {
-				return nil, errStream
-			}
-			lastErr = errStream
-			if homeMode {
-				homeAuthCount++
-			}
-			continue
+		if !shouldContinue {
+			return streamResult, nil
 		}
-		return streamResult, nil
 	}
 }
 
@@ -2620,6 +2703,11 @@ func isUnauthorizedError(err error) bool {
 func hasUnauthorizedAuthFailure(auth *Auth) bool {
 	if auth == nil || auth.LastError == nil {
 		return false
+	}
+	if strings.EqualFold(auth.Provider, "qwen") {
+		if auth.Metadata != nil && auth.Metadata["email"] != nil && auth.Metadata["password"] != nil {
+			return false
+		}
 	}
 	return auth.LastError.StatusCode() == http.StatusUnauthorized || strings.EqualFold(auth.LastError.Code, "unauthorized")
 }

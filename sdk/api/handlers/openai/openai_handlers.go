@@ -7,11 +7,21 @@
 package openai
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"regexp"
+	"strings"
 	"sync"
+	"time"
+
+	qwenauth "github.com/router-for-me/CLIProxyAPI/v7/internal/auth/qwen"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/runtime/executor/helps"
+	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/gin-gonic/gin"
 	. "github.com/router-for-me/CLIProxyAPI/v7/internal/constant"
@@ -123,6 +133,13 @@ func (h *OpenAIAPIHandler) ChatCompletions(c *gin.Context) {
 		modelName := gjson.GetBytes(rawJSON, "model").String()
 		rawJSON = responsesconverter.ConvertOpenAIResponsesRequestToOpenAIChatCompletions(modelName, rawJSON, stream)
 		stream = gjson.GetBytes(rawJSON, "stream").Bool()
+	}
+
+	// Drawing prompt interception
+	if prompt, ok := matchDrawingIntent(rawJSON); ok {
+		if h.handleDrawingInterception(c, prompt, stream) {
+			return
+		}
 	}
 
 	if stream {

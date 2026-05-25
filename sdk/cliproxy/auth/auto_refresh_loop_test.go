@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
@@ -155,5 +156,152 @@ func TestNextRefreshCheckAt_RefreshEvaluatorFallback(t *testing.T) {
 	want := now.Add(interval)
 	if !got.Equal(want) {
 		t.Fatalf("nextRefreshCheckAt() = %s, want %s", got, want)
+	}
+}
+
+func TestNextRefreshCheckAt_QwenBypassesUnauthorized(t *testing.T) {
+	now := time.Date(2026, 4, 12, 0, 0, 0, 0, time.UTC)
+	auth := &Auth{
+		ID:       "qwen-test.json",
+		Provider: "qwen",
+		LastError: &Error{
+			HTTPStatus: 401,
+			Code:       "unauthorized",
+			Message:    "simulated 401 unauthorized error",
+		},
+		Metadata: map[string]any{
+			"email":    "user@example.com",
+			"password": "hashed_or_plain_password",
+		},
+	}
+
+	setRefreshLeadFactory(t, "qwen", func() *time.Duration {
+		d := 5 * time.Minute
+		return &d
+	})
+
+	got, ok := nextRefreshCheckAt(now, auth, 15*time.Minute)
+	if !ok {
+		t.Fatalf("expected nextRefreshCheckAt to return true for qwen even with 401 error")
+	}
+	if !got.Equal(now) {
+		t.Fatalf("expected next refresh check to be scheduled immediately, got: %v", got)
+	}
+
+	// Verify shouldRefresh returns true for qwen even with 401
+	manager := NewManager(nil, nil, nil)
+	if !manager.shouldRefresh(auth, now) {
+		t.Fatalf("expected manager.shouldRefresh to return true for qwen with 401")
+	}
+}
+
+type mockQwenExecutor struct {
+	schedulerProviderTestExecutor
+	refreshFunc func(ctx context.Context, auth *Auth) (*Auth, error)
+}
+
+func (e *mockQwenExecutor) Refresh(ctx context.Context, auth *Auth) (*Auth, error) {
+	if e.refreshFunc != nil {
+		return e.refreshFunc(ctx, auth)
+	}
+	return auth, nil
+}
+
+type mockStore struct {
+	auths     map[string]*Auth
+	saveCount int
+}
+
+func (s *mockStore) List(ctx context.Context) ([]*Auth, error) {
+	var list []*Auth
+	for _, a := range s.auths {
+		list = append(list, a)
+	}
+	return list, nil
+}
+
+func (s *mockStore) Save(ctx context.Context, auth *Auth) (string, error) {
+	s.saveCount++
+	s.auths[auth.ID] = auth
+	return auth.ID, nil
+}
+
+func (s *mockStore) Delete(ctx context.Context, id string) error {
+	delete(s.auths, id)
+	return nil
+}
+
+func TestQwenAutoRefreshSelfHealing(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	store := &mockStore{
+		auths: make(map[string]*Auth),
+	}
+
+	manager := NewManager(store, &RoundRobinSelector{}, nil)
+
+	qwenExec := &mockQwenExecutor{
+		schedulerProviderTestExecutor: schedulerProviderTestExecutor{provider: "qwen"},
+		refreshFunc: func(ctx context.Context, auth *Auth) (*Auth, error) {
+			cloned := auth.Clone()
+			cloned.Metadata["access_token"] = "new_valid_token"
+			delete(cloned.Metadata, "error")
+			return cloned, nil
+		},
+	}
+	manager.RegisterExecutor(qwenExec)
+
+	auth := &Auth{
+		ID:       "qwen-test-refresh.json",
+		Provider: "qwen",
+		LastError: &Error{
+			HTTPStatus: 401,
+			Code:       "unauthorized",
+			Message:    "simulated 401 unauthorized error",
+		},
+		Metadata: map[string]any{
+			"email":        "user@example.com",
+			"password":     "hashed_or_plain_password",
+			"access_token": "expired_token",
+		},
+	}
+
+	if _, err := manager.Register(ctx, auth); err != nil {
+		t.Fatalf("failed to register auth: %v", err)
+	}
+
+	setRefreshLeadFactory(t, "qwen", func() *time.Duration {
+		d := 5 * time.Minute
+		return &d
+	})
+
+	manager.refreshAuth(ctx, auth.ID)
+
+	updated, ok := manager.GetByID(auth.ID)
+	if !ok {
+		t.Fatalf("expected auth %q to exist", auth.ID)
+	}
+
+	if updated.LastError != nil {
+		t.Fatalf("expected last error to be cleared, got: %v", updated.LastError)
+	}
+
+	accessToken, ok := updated.Metadata["access_token"].(string)
+	if !ok || accessToken != "new_valid_token" {
+		t.Fatalf("expected access token to be 'new_valid_token', got: %v", updated.Metadata["access_token"])
+	}
+
+	if store.saveCount == 0 {
+		t.Fatalf("expected store Save to be called during refresh")
+	}
+
+	savedAuth := store.auths[auth.ID]
+	if savedAuth == nil {
+		t.Fatalf("expected auth to be saved in store")
+	}
+	savedAccessToken, _ := savedAuth.Metadata["access_token"].(string)
+	if savedAccessToken != "new_valid_token" {
+		t.Fatalf("expected saved access token to be 'new_valid_token', got: %v", savedAccessToken)
 	}
 }
