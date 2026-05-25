@@ -1,0 +1,33 @@
+# CPA2API 开发环境 Docker Compose
+# 端口: 9317 (API), 19317 (前端管理页面)
+# 使用 host network 模式以确保 Clash 代理 (127.0.0.1:7897) 可达
+
+services:
+  cpa2api-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: cpa2api:dev
+    container_name: cpa2api-dev
+    # host 网络模式 - 与 rfym21 相同，绑过 TLS 指纹检测
+    network_mode: host
+    user: "1000:1000"
+    environment:
+      - MANAGEMENT_PASSWORD=skloxoskloxoskloxo
+    command: ["-config", "/app/config.yaml"]
+    volumes:
+      - ./config-dev.yaml:/app/config.yaml
+      - /tmp/cpa2api-auth:/tmp/cpa2api-auth
+      - ./static:/app/static
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9317/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

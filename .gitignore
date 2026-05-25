@@ -51,3 +51,11 @@ _bmad-output/*
 .DS_Store
 ._*
 .gocache/
+
+# Local custom ignores
+CPA2API
+cpa2api
+server
+*.tar.gz
+*.bak
+config-dev.yaml
