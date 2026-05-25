@@ -288,6 +288,10 @@ func qwenModelDisplayName(id string) string {
 func qwenModelContextLength(id string) int {
 	lower := strings.ToLower(id)
 	switch {
+	case strings.HasPrefix(lower, "qwen3.7"):
+		return 131072
+	case strings.HasPrefix(lower, "qwen3.6"):
+		return 131072
 	case strings.HasPrefix(lower, "qwen3-max"):
 		return 131072
 	case strings.HasPrefix(lower, "qwen3-plus"):
