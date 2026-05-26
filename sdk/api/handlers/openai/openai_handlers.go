@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
 	qwenauth "github.com/router-for-me/CLIProxyAPI/v7/internal/auth/qwen"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/runtime/executor/helps"
@@ -1028,23 +1029,42 @@ func qwenCredsFromAuth(a *cliproxyauth.Auth) (token, cookie string) {
 }
 
 func buildQwenImageRequest(chatID, model, prompt, size string, stream bool) []byte {
+	if model == "" || model == "qwen-vl-max" {
+		model = "qwen3.6-plus"
+	}
+
+	fid := uuid.New().String()
+	childID := uuid.New().String()
+	ts := time.Now().UnixMilli()
+
+	// Build message JSON
+	msg := []byte(`{}`)
+	msg, _ = sjson.SetBytes(msg, "fid", fid)
+	msg, _ = sjson.SetBytes(msg, "parentId", nil)
+	msg, _ = sjson.SetRawBytes(msg, "childrenIds", []byte(fmt.Sprintf(`["%s"]`, childID)))
+	msg, _ = sjson.SetBytes(msg, "role", "user")
+	msg, _ = sjson.SetBytes(msg, "content", prompt)
+	msg, _ = sjson.SetBytes(msg, "user_action", "chat")
+	msg, _ = sjson.SetRawBytes(msg, "files", []byte(`[]`))
+	msg, _ = sjson.SetBytes(msg, "timestamp", ts)
+	msg, _ = sjson.SetRawBytes(msg, "models", []byte(fmt.Sprintf(`["%s"]`, model)))
+	msg, _ = sjson.SetBytes(msg, "chat_type", "t2i")
+	msg, _ = sjson.SetRawBytes(msg, "feature_config", []byte(`{"thinking_enabled":true,"output_schema":"phase","thinking_mode":"Auto"}`))
+	msg, _ = sjson.SetRawBytes(msg, "extra", []byte(`{"meta":{"subChatType":"t2i"}}`))
+	msg, _ = sjson.SetBytes(msg, "sub_chat_type", "t2i")
+	msg, _ = sjson.SetBytes(msg, "parent_id", nil)
+
+	// Build root JSON
 	req := []byte(`{}`)
 	req, _ = sjson.SetBytes(req, "stream", stream)
 	req, _ = sjson.SetBytes(req, "version", "2.1")
 	req, _ = sjson.SetBytes(req, "incremental_output", true)
+	req, _ = sjson.SetBytes(req, "chat_mode", "normal")
 	req, _ = sjson.SetBytes(req, "chat_id", chatID)
-
-	if model == "" {
-		model = "qwen-vl-max"
-	}
 	req, _ = sjson.SetBytes(req, "model", model)
-
-	msg := []byte(`{}`)
-	msg, _ = sjson.SetBytes(msg, "role", "user")
-	msg, _ = sjson.SetBytes(msg, "content", prompt)
-	msg, _ = sjson.SetBytes(msg, "chat_type", "t2i")
-	msg, _ = sjson.SetRawBytes(msg, "files", []byte(`[]`))
-	msg, _ = sjson.SetRawBytes(msg, "feature_config", []byte(`{"output_schema":"phase"}`))
+	req, _ = sjson.SetBytes(req, "parent_id", nil)
+	req, _ = sjson.SetBytes(req, "timestamp", ts)
+	req, _ = sjson.SetRawBytes(req, "messages", []byte(`[]`))
 	req, _ = sjson.SetRawBytes(req, "messages.-1", msg)
 
 	if size != "" {
