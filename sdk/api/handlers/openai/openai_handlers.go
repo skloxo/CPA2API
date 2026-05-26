@@ -877,7 +877,7 @@ func (h *OpenAIAPIHandler) generateImageQwen(ctx context.Context, auth *cliproxy
 			SDKConfig: *h.Cfg,
 		}
 	}
-	httpClient := helps.NewProxyAwareHTTPClient(ctx, helpsCfg, auth, 0)
+	httpClient := helps.NewUtlsHTTPClient(helpsCfg, auth, 0)
 	httpResp, err := httpClient.Do(httpReq)
 	if err != nil {
 		return "", fmt.Errorf("upstream request: %w", err)
@@ -906,9 +906,9 @@ func (h *OpenAIAPIHandler) generateImageQwen(ctx context.Context, auth *cliproxy
 }
 
 func (h *OpenAIAPIHandler) qwenGenerateChatID(ctx context.Context, auth *cliproxyauth.Auth, token, cookie string) (string, error) {
-	url := qwenauth.QwenAPIBaseURL + "/api/v2/chats"
+	url := qwenauth.QwenAPIBaseURL + "/api/v2/chats/new"
 
-	reqBody := []byte(`{"name":"New Chat"}`)
+	reqBody := []byte("{}")
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, strings.NewReader(string(reqBody)))
 	if err != nil {
 		return "", err
@@ -922,7 +922,7 @@ func (h *OpenAIAPIHandler) qwenGenerateChatID(ctx context.Context, auth *cliprox
 			SDKConfig: *h.Cfg,
 		}
 	}
-	httpClient := helps.NewProxyAwareHTTPClient(ctx, helpsCfg, auth, 0)
+	httpClient := helps.NewUtlsHTTPClient(helpsCfg, auth, 0)
 	httpResp, err := httpClient.Do(httpReq)
 	if err != nil {
 		return "", err
@@ -963,7 +963,7 @@ func (h *OpenAIAPIHandler) qwenGetChatDetail(ctx context.Context, auth *cliproxy
 			SDKConfig: *h.Cfg,
 		}
 	}
-	httpClient := helps.NewProxyAwareHTTPClient(ctx, helpsCfg, auth, 0)
+	httpClient := helps.NewUtlsHTTPClient(helpsCfg, auth, 0)
 	httpResp, err := httpClient.Do(httpReq)
 	if err != nil {
 		return nil, err
