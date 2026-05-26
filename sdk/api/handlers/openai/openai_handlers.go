@@ -139,7 +139,8 @@ func (h *OpenAIAPIHandler) ChatCompletions(c *gin.Context) {
 
 	// Drawing prompt interception
 	if prompt, ok := matchDrawingIntent(rawJSON); ok {
-		if h.handleDrawingInterception(c, prompt, stream) {
+		modelName := gjson.GetBytes(rawJSON, "model").String()
+		if h.handleDrawingInterception(c, modelName, prompt, stream) {
 			return
 		}
 	}
@@ -779,7 +780,7 @@ func (h *OpenAIAPIHandler) getActiveQwenAuth() *cliproxyauth.Auth {
 }
 
 // handleDrawingInterception executes Qwen drawing and returns the formatted response.
-func (h *OpenAIAPIHandler) handleDrawingInterception(c *gin.Context, prompt string, stream bool) bool {
+func (h *OpenAIAPIHandler) handleDrawingInterception(c *gin.Context, modelName, prompt string, stream bool) bool {
 	auth := h.getActiveQwenAuth()
 	if auth == nil {
 		log.Warn("Drawing interception: no active Qwen credential available")
@@ -795,7 +796,11 @@ func (h *OpenAIAPIHandler) handleDrawingInterception(c *gin.Context, prompt stri
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Minute)
 	defer cancel()
 
-	contentURL, err := h.generateImageQwen(ctx, auth, prompt)
+	if modelName == "" {
+		modelName = "qwen-vl-max"
+	}
+
+	contentURL, err := h.generateImageQwen(ctx, auth, modelName, prompt)
 	if err != nil {
 		log.Errorf("Drawing interception: failed to generate image: %v", err)
 		c.JSON(http.StatusInternalServerError, handlers.ErrorResponse{
@@ -808,7 +813,6 @@ func (h *OpenAIAPIHandler) handleDrawingInterception(c *gin.Context, prompt stri
 	}
 
 	markdownLink := fmt.Sprintf("![Generated Image](%s)", contentURL)
-	modelName := "qwen-vl-max"
 
 	if stream {
 		c.Header("Content-Type", "text/event-stream")
@@ -853,7 +857,7 @@ func (h *OpenAIAPIHandler) handleDrawingInterception(c *gin.Context, prompt stri
 	return true
 }
 
-func (h *OpenAIAPIHandler) generateImageQwen(ctx context.Context, auth *cliproxyauth.Auth, prompt string) (string, error) {
+func (h *OpenAIAPIHandler) generateImageQwen(ctx context.Context, auth *cliproxyauth.Auth, modelName, prompt string) (string, error) {
 	token, cookie := qwenCredsFromAuth(auth)
 
 	chatID, err := h.qwenGenerateChatID(ctx, auth, token, cookie)
@@ -861,7 +865,7 @@ func (h *OpenAIAPIHandler) generateImageQwen(ctx context.Context, auth *cliproxy
 		return "", fmt.Errorf("generate chat_id: %w", err)
 	}
 
-	reqBody := buildQwenImageRequest(chatID, "qwen-vl-max", prompt, "1024x1024", false)
+	reqBody := buildQwenImageRequest(chatID, modelName, prompt, "1024x1024", true)
 	url := qwenauth.QwenAPIBaseURL + "/api/v2/chat/completions?chat_id=" + chatID
 
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, strings.NewReader(string(reqBody)))
@@ -1147,7 +1151,7 @@ func extractResourceURLFromPayload(payload []byte) string {
 		}
 	}
 
-	for _, path := range []string{"data", "message", "delta", "extra", "output", "result", "results", "choices"} {
+	for _, path := range []string{"data", "message", "messages", "delta", "extra", "output", "result", "results", "choices"} {
 		if nested := gjson.GetBytes(payload, path); nested.Exists() {
 			if nested.IsArray() {
 				for _, item := range nested.Array() {

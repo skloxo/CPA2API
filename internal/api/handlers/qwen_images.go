@@ -119,7 +119,7 @@ func (h *QwenHandlers) generateImage(ctx context.Context, prompt, model, size st
 		return "", fmt.Errorf("generate chat_id: %w", err)
 	}
 
-	reqBody := buildQwenImageRequest(chatID, model, prompt, size, false)
+	reqBody := buildQwenImageRequest(chatID, model, prompt, size, true)
 	url := qwenauth.QwenAPIBaseURL + "/api/v2/chat/completions?chat_id=" + chatID
 
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, strings.NewReader(string(reqBody)))
@@ -431,7 +431,7 @@ func extractResourceURLFromPayload(payload []byte) string {
 	}
 
 	// Recursive search in nested objects/arrays
-	for _, path := range []string{"data", "message", "delta", "extra", "output", "result", "results", "choices"} {
+	for _, path := range []string{"data", "message", "messages", "delta", "extra", "output", "result", "results", "choices"} {
 		if nested := gjson.GetBytes(payload, path); nested.Exists() {
 			if nested.IsArray() {
 				for _, item := range nested.Array() {
