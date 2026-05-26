@@ -19,8 +19,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
 	qwenauth "github.com/router-for-me/CLIProxyAPI/v7/internal/auth/qwen"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/runtime/executor/helps"
 	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
 	log "github.com/sirupsen/logrus"
@@ -1180,7 +1180,7 @@ func sendStreamChunk(w io.Writer, flusher http.Flusher, id string, model string,
 	} else {
 		finishReasonStr = fmt.Sprintf("%q", finishReason.(string))
 	}
-	
+
 	var deltaJSON string
 	if content == "" && finishReason == nil {
 		deltaJSON = `{"role":"assistant"}`

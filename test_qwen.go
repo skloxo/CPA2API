@@ -14,8 +14,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
 	qwenauth "github.com/router-for-me/CLIProxyAPI/v7/internal/auth/qwen"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/runtime/executor/helps"
 	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
 )
@@ -66,7 +66,7 @@ func main() {
 	if err == nil {
 		bodyModels, _ := io.ReadAll(respModels.Body)
 		respModels.Body.Close()
-		
+
 		var apiResp struct {
 			Data []struct {
 				ID   string `json:"id"`

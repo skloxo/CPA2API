@@ -778,19 +778,19 @@ func closeFloat(left float64, right float64) bool {
 
 func TestSelectModelPricesMatchesByPriorityAndReportsUnmatched(t *testing.T) {
 	prices := map[string]store.ModelPrice{
-		"gpt-4o-2024-08-06":                   {Prompt: 2.5, Completion: 10},
-		"anthropic/claude-3.5-sonnet":         {Prompt: 3, Completion: 15},
+		"gpt-4o-2024-08-06":                      {Prompt: 2.5, Completion: 10},
+		"anthropic/claude-3.5-sonnet":            {Prompt: 3, Completion: 15},
 		"openrouter/anthropic/claude-3.5-sonnet": {Prompt: 3.1, Completion: 15.1},
-		"gemini/gemini-2.5-flash":             {Prompt: 0.075, Completion: 0.3},
-		"claude-sonnet-4-5-20250929":          {Prompt: 3.2, Completion: 16},
+		"gemini/gemini-2.5-flash":                {Prompt: 0.075, Completion: 0.3},
+		"claude-sonnet-4-5-20250929":             {Prompt: 3.2, Completion: 16},
 	}
 
 	models := []string{
-		"gpt-4o-2024-08-06",         // 精确
-		"GEMINI/Gemini-2.5-Flash",   // 大小写不敏感
-		"claude-3.5-sonnet",         // basename：应选最短 anthropic/* 而非 openrouter/*
-		"claude-sonnet-4-5",         // 剥离日期后缀
-		"unknown-model-xyz",         // unmatched
+		"gpt-4o-2024-08-06",       // 精确
+		"GEMINI/Gemini-2.5-Flash", // 大小写不敏感
+		"claude-3.5-sonnet",       // basename：应选最短 anthropic/* 而非 openrouter/*
+		"claude-sonnet-4-5",       // 剥离日期后缀
+		"unknown-model-xyz",       // unmatched
 	}
 
 	selected, unmatched := selectModelPrices(prices, models)
@@ -836,14 +836,14 @@ func TestSelectModelPricesEmptyModelsReturnsAll(t *testing.T) {
 
 func TestExtractProxyURLFromBodyAcceptsMultipleShapes(t *testing.T) {
 	cases := map[string]string{
-		`"http://proxy:8080"`:                  "http://proxy:8080",
-		`{"proxy-url":"http://a:1"}`:           "http://a:1",
-		`{"proxyUrl":"http://b:2"}`:            "http://b:2",
-		`{"proxy_url":"http://c:3"}`:           "http://c:3",
-		`{"value":"http://d:4"}`:               "http://d:4",
-		`{"unrelated":"x"}`:                    "",
-		`{"proxy-url":" http://e:5 "}`:         "http://e:5",
-		``:                                     "",
+		`"http://proxy:8080"`:          "http://proxy:8080",
+		`{"proxy-url":"http://a:1"}`:   "http://a:1",
+		`{"proxyUrl":"http://b:2"}`:    "http://b:2",
+		`{"proxy_url":"http://c:3"}`:   "http://c:3",
+		`{"value":"http://d:4"}`:       "http://d:4",
+		`{"unrelated":"x"}`:            "",
+		`{"proxy-url":" http://e:5 "}`: "http://e:5",
+		``:                             "",
 	}
 	for body, want := range cases {
 		if got := extractProxyURLFromBody([]byte(body)); got != want {
