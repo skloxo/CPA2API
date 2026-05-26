@@ -41,6 +41,9 @@ export interface AuthFileItem {
   geminiVirtualProject?: string;
   recent_requests?: RecentRequestBucket[];
   recentRequests?: RecentRequestBucket[];
+  concurrency_active?: number;
+  concurrency_limit?: number;
+  preheat_pool_size?: number;
   [key: string]: unknown;
 }
 

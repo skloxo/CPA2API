@@ -2062,3 +2062,19 @@
   color: var(--text-tertiary);
   font-family: inherit;
 }
+
+.concurrencyBadge {
+  .concurrencyValue {
+    font-weight: 700;
+    color: var(--primary-color);
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+.preheatBadge {
+  .preheatValue {
+    font-weight: 700;
+    color: #e6a23c;
+    font-variant-numeric: tabular-nums;
+  }
+}

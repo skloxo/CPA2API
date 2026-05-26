@@ -67,6 +67,12 @@ func (q *preheatQueue) Pop() string {
 	}
 	id := q.chatIDs[0]
 	q.chatIDs = q.chatIDs[1:]
+	if q.auth != nil {
+		if q.auth.Metadata == nil {
+			q.auth.Metadata = make(map[string]any)
+		}
+		q.auth.Metadata["preheat_pool_size"] = len(q.chatIDs)
+	}
 	return id
 }
 
@@ -739,6 +745,12 @@ func (e *QwenExecutor) getPreheatQueue(auth *cliproxyauth.Auth) *preheatQueue {
 	q.mu.Lock()
 	q.lastActive = time.Now()
 	q.auth = auth // In case credentials or tokens are hot-swapped
+	if q.auth != nil {
+		if q.auth.Metadata == nil {
+			q.auth.Metadata = make(map[string]any)
+		}
+		q.auth.Metadata["preheat_pool_size"] = len(q.chatIDs)
+	}
 	isActive := q.active
 	q.mu.Unlock()
 	e.preheatMu.Unlock()
@@ -793,6 +805,12 @@ func (e *QwenExecutor) preheatWorker(authID string, q *preheatQueue) {
 				if len(q.chatIDs) < 5 {
 					q.chatIDs = append(q.chatIDs, chatID)
 					log.Debugf("qwen executor: preheated chat_id=%s for auth %s (pool size: %d)", chatID, authID, len(q.chatIDs))
+					if q.auth != nil {
+						if q.auth.Metadata == nil {
+							q.auth.Metadata = make(map[string]any)
+						}
+						q.auth.Metadata["preheat_pool_size"] = len(q.chatIDs)
+					}
 				}
 				q.mu.Unlock()
 			} else {

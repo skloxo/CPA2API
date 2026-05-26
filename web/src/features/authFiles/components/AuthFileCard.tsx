@@ -219,6 +219,22 @@ export function AuthFileCard(props: AuthFileCardProps) {
                 <span className={styles.metaValue}>{projectIdValue}</span>
               </div>
             )}
+            {file.concurrency_limit !== undefined && file.concurrency_limit > 0 && (
+              <div className={`${styles.metaItem} ${styles.concurrencyBadge}`}>
+                <span className={styles.metaLabel}>{t('auth_files.concurrency_display', { defaultValue: '并发限制' })}</span>
+                <span className={`${styles.metaValue} ${styles.concurrencyValue}`}>
+                  {file.concurrency_active ?? 0} / {file.concurrency_limit}
+                </span>
+              </div>
+            )}
+            {isQwen && file.preheat_pool_size !== undefined && (
+              <div className={`${styles.metaItem} ${styles.preheatBadge}`}>
+                <span className={styles.metaLabel}>{t('auth_files.preheat_pool_display', { defaultValue: '预热池' })}</span>
+                <span className={`${styles.metaValue} ${styles.preheatValue}`}>
+                  {file.preheat_pool_size} / 5
+                </span>
+              </div>
+            )}
           </div>
 
           {rawStatusMessage && hasStatusWarning && (

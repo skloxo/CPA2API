@@ -4504,3 +4504,18 @@ func (m *Manager) HttpRequest(ctx context.Context, auth *Auth, req *http.Request
 	}
 	return exec.HttpRequest(ctx, auth, req)
 }
+
+// ActiveConcurrency returns the number of active inflight requests for a given auth ID.
+func (m *Manager) ActiveConcurrency(auth *Auth) int {
+	if m == nil || m.concurrency == nil || auth == nil {
+		return 0
+	}
+	m.concurrency.mu.Lock()
+	defer m.concurrency.mu.Unlock()
+	sem, ok := m.concurrency.semaphores[auth.ID]
+	if !ok {
+		return 0
+	}
+	return len(sem)
+}
+

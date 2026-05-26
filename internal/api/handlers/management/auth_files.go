@@ -418,6 +418,17 @@ func (h *Handler) buildAuthFileEntry(auth *coreauth.Auth) gin.H {
 	entry["success"] = auth.Success
 	entry["failed"] = auth.Failed
 	entry["recent_requests"] = auth.RecentRequestsSnapshot(time.Now())
+	if h.authManager != nil {
+		entry["concurrency_active"] = h.authManager.ActiveConcurrency(auth)
+	} else {
+		entry["concurrency_active"] = 0
+	}
+	entry["concurrency_limit"] = coreauth.GetMaxConcurrency(auth)
+	if auth.Metadata != nil {
+		if val, ok := auth.Metadata["preheat_pool_size"]; ok {
+			entry["preheat_pool_size"] = val
+		}
+	}
 	if email := authEmail(auth); email != "" {
 		entry["email"] = email
 	}
