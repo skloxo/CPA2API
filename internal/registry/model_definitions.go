@@ -4,7 +4,27 @@ package registry
 
 import (
 	"strings"
+	"sync"
 )
+
+var (
+	discoveredModelsMu sync.RWMutex
+	discoveredModels   = make(map[string][]*ModelInfo)
+)
+
+// RegisterDiscoveredModels registers a slice of discovered models for a given provider.
+func RegisterDiscoveredModels(provider string, models []*ModelInfo) {
+	discoveredModelsMu.Lock()
+	defer discoveredModelsMu.Unlock()
+	discoveredModels[strings.ToLower(strings.TrimSpace(provider))] = cloneModelInfos(models)
+}
+
+// GetDiscoveredModels returns a cloned slice of discovered models registered for a given provider.
+func GetDiscoveredModels(provider string) []*ModelInfo {
+	discoveredModelsMu.RLock()
+	defer discoveredModelsMu.RUnlock()
+	return cloneModelInfos(discoveredModels[strings.ToLower(strings.TrimSpace(provider))])
+}
 
 const (
 	codexBuiltinImageModelID      = "gpt-image-2"
@@ -50,7 +70,7 @@ func GetGeminiCLIModels() []*ModelInfo {
 	return cloneModelInfos(getModels().GeminiCLI)
 }
 
-// GetAIStudioModels returns model definitions for AI Studio.
+// GetAIStudioModels returns AI Studio model definitions.
 func GetAIStudioModels() []*ModelInfo {
 	return cloneModelInfos(getModels().AIStudio)
 }
@@ -231,41 +251,79 @@ func cloneModelInfos(models []*ModelInfo) []*ModelInfo {
 //   - antigravity
 //   - xai
 //   - qwen
+//
+// In this updated version, it dynamically merges static catalog models,
+// live registered dynamic models from the global registry, and discovered models.
 func GetStaticModelDefinitionsByChannel(channel string) []*ModelInfo {
 	key := strings.ToLower(strings.TrimSpace(channel))
-	if dynamicModels := GetGlobalRegistry().GetAvailableModelsByProvider(key); len(dynamicModels) > 0 {
-		return dynamicModels
-	}
+
+	var staticModels []*ModelInfo
+	isKnownChannel := false
+
 	switch key {
 	case "claude":
-		return GetClaudeModels()
+		staticModels = GetClaudeModels()
+		isKnownChannel = true
 	case "gemini":
-		return GetGeminiModels()
+		staticModels = GetGeminiModels()
+		isKnownChannel = true
 	case "vertex":
-		return GetGeminiVertexModels()
+		staticModels = GetGeminiVertexModels()
+		isKnownChannel = true
 	case "gemini-cli":
-		return GetGeminiCLIModels()
+		staticModels = GetGeminiCLIModels()
+		isKnownChannel = true
 	case "aistudio":
-		return GetAIStudioModels()
+		staticModels = GetAIStudioModels()
+		isKnownChannel = true
 	case "codex":
-		return GetCodexProModels()
+		staticModels = GetCodexProModels()
+		isKnownChannel = true
 	case "kimi":
-		return GetKimiModels()
+		staticModels = GetKimiModels()
+		isKnownChannel = true
 	case "antigravity":
-		return GetAntigravityModels()
+		staticModels = GetAntigravityModels()
+		isKnownChannel = true
 	case "xai", "x-ai", "grok":
-		return GetXAIModels()
+		staticModels = GetXAIModels()
+		isKnownChannel = true
 	case "qwen":
-		m := GetQwenModels()
-		if m == nil {
-			// Channel is known; return empty slice (not nil) so callers don't
-			// treat it as an unknown channel when the remote catalog is missing qwen.
-			m = []*ModelInfo{}
-		}
-		return m
-	default:
+		staticModels = GetQwenModels()
+		isKnownChannel = true
+	}
+
+	dynamicModels := GetGlobalRegistry().GetAvailableModelsByProvider(key)
+	discovered := GetDiscoveredModels(key)
+
+	if !isKnownChannel && len(dynamicModels) == 0 && len(discovered) == 0 {
 		return nil
 	}
+
+	seen := make(map[string]struct{})
+	var result []*ModelInfo
+
+	addUnique := func(list []*ModelInfo) {
+		for _, m := range list {
+			if m == nil || m.ID == "" {
+				continue
+			}
+			idLower := strings.ToLower(strings.TrimSpace(m.ID))
+			if _, exists := seen[idLower]; !exists {
+				seen[idLower] = struct{}{}
+				result = append(result, cloneModelInfo(m))
+			}
+		}
+	}
+
+	addUnique(dynamicModels)
+	addUnique(discovered)
+	addUnique(staticModels)
+
+	if len(result) == 0 && key == "qwen" {
+		return []*ModelInfo{}
+	}
+	return result
 }
 
 // LookupStaticModelInfo searches all static model definitions for a model by ID.

@@ -7,6 +7,10 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        VERSION: ${VERSION:-v7.2.2-s.4}
+        COMMIT: ${COMMIT:-none}
+        BUILD_DATE: ${BUILD_DATE:-2026/05/30 08:08:59}
     image: cpa2api:dev
     container_name: cpa2api-dev
     # host 网络模式 - 与 rfym21 相同，绑过 TLS 指纹检测

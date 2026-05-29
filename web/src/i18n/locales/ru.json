@@ -61,12 +61,12 @@
     "unsaved_changes_message": "У вас есть несохранённые изменения. Если вы уйдёте, они будут потеряны. Выйти?"
   },
   "title": {
-    "main": "Центр управления CLI Proxy API",
-    "login": "Центр управления CLI Proxy API",
+    "main": "Центр управления CPA2API",
+    "login": "Центр управления CPA2API",
     "abbr": "CPAMC"
   },
   "splash": {
-    "title": "CLI Proxy API",
+    "title": "CPA2API",
     "subtitle": "Центр управления"
   },
   "auto_login": {
@@ -148,7 +148,7 @@
   },
   "dashboard": {
     "title": "Панель управления",
-    "subtitle": "Добро пожаловать в Центр управления CLI Proxy API",
+    "subtitle": "Добро пожаловать в Центр управления CPA2API",
     "openai_providers": "Поставщики OpenAI",
     "quick_actions": "Быстрые действия",
     "current_config": "Текущая конфигурация",
@@ -617,7 +617,7 @@
     "models_empty": "Для этих учётных данных нет доступных моделей",
     "models_empty_desc": "Возможно, учётные данные ещё не загружены сервером или к ним не привязаны модели.",
     "models_unsupported": "Функция не поддерживается в текущей версии",
-    "models_unsupported_desc": "Обновите CLI Proxy API до последней версии и повторите попытку",
+    "models_unsupported_desc": "Обновите CPA2API до последней версии и повторите попытку",
     "models_excluded_badge": "Отключена",
     "models_excluded_hint": "Эта OAuth-модель отключена",
     "status_toggle_label": "Включено",
@@ -831,8 +831,8 @@
     "scope_all": "Область: все провайдеры",
     "scope_provider": "Область: {{provider}}",
     "upgrade_required": "Текущая версия CPA не поддерживает отключение OAuth-моделей. Пожалуйста, обновите систему.",
-    "upgrade_required_title": "Пожалуйста, обновите CLI Proxy API",
-    "upgrade_required_desc": "Текущая версия сервера не поддерживает получение отключения OAuth-моделей. Обновите CPA (CLI Proxy API) до последней версии и повторите попытку."
+    "upgrade_required_title": "Пожалуйста, обновите CPA2API",
+    "upgrade_required_desc": "Текущая версия сервера не поддерживает получение отключения OAuth-моделей. Обновите CPA (CPA2API) до последней версии и повторите попытку."
   },
   "oauth_model_alias": {
     "title": "Псевдонимы моделей OAuth",
@@ -892,9 +892,9 @@
     "view_mode_diagram": "Диаграмма",
     "view_mode_list": "Список",
     "provider_required": "Сначала укажите провайдера",
-    "upgrade_required": "Эта функция требует более новой версии CLI Proxy API (CPA). Обновите систему.",
-    "upgrade_required_title": "Пожалуйста, обновите CLI Proxy API",
-    "upgrade_required_desc": "Текущая версия сервера не поддерживает API псевдонимов моделей OAuth. Обновите CLI Proxy API (CPA) до последней версии."
+    "upgrade_required": "Эта функция требует более новой версии CPA2API (CPA). Обновите систему.",
+    "upgrade_required_title": "Пожалуйста, обновите CPA2API",
+    "upgrade_required_desc": "Текущая версия сервера не поддерживает API псевдонимов моделей OAuth. Обновите CPA2API (CPA) до последней версии."
   },
   "auth_login": {
     "codex_oauth_title": "Codex OAuth",
@@ -979,7 +979,7 @@
     "oauth_callback_required": "Сначала вставьте полный URL перенаправления.",
     "oauth_callback_success": "Callback URL отправлен. Продолжайте ожидать аутентификацию.",
     "oauth_callback_error": "Не удалось отправить Callback URL:",
-    "oauth_callback_upgrade_hint": "Обновите CLI Proxy API или проверьте подключение.",
+    "oauth_callback_upgrade_hint": "Обновите CPA2API или проверьте подключение.",
     "oauth_callback_status_success": "Callback URL отправлен, ожидаем аутентификацию...",
     "oauth_callback_status_error": "Не удалось отправить Callback URL:",
     "missing_state": "Не удалось получить параметр состояния аутентификации",
@@ -1587,8 +1587,8 @@
     "copy_failed": "Не удалось скопировать",
     "lines": "строк",
     "removed": "Отфильтровано",
-    "upgrade_required_title": "Обновите CLI Proxy API",
-    "upgrade_required_desc": "Текущая версия сервера не поддерживает просмотр журналов. Обновите CLI Proxy API до последней версии, чтобы использовать эту функцию."
+    "upgrade_required_title": "Обновите CPA2API",
+    "upgrade_required_desc": "Текущая версия сервера не поддерживает просмотр журналов. Обновите CPA2API до последней версии, чтобы использовать эту функцию."
   },
   "config_management": {
     "title": "Панель конфигурации",
@@ -1953,7 +1953,7 @@
   },
   "system_info": {
     "title": "Информация о центре управления",
-    "about_title": "CLI Proxy API Management Center",
+    "about_title": "CPA2API Management Center",
     "connection_status_title": "Статус подключения",
     "api_status_label": "Статус API:",
     "config_status_label": "Статус конфигурации:",
@@ -1987,7 +1987,7 @@
     "quick_links_title": "Быстрые ссылки",
     "quick_links_desc": "Доступ к репозиториям проекта и документации для помощи и обновлений.",
     "link_main_repo": "Основной репозиторий",
-    "link_main_repo_desc": "Исходный код основной программы CLI Proxy API",
+    "link_main_repo_desc": "Исходный код основной программы CPA2API",
     "link_webui_repo": "Репозиторий WebUI",
     "link_webui_repo_desc": "Исходный код фронтенда центра управления",
     "link_docs": "Документация",
@@ -2086,7 +2086,7 @@
     "toggle_collapse": "Свернуть боковую панель"
   },
   "footer": {
-    "api_version": "Версия CLI Proxy API",
+    "api_version": "Версия CPA2API",
     "build_date": "Время сборки",
     "version": "Версия интерфейса управления",
     "author": "Автор"

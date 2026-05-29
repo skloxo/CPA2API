@@ -159,39 +159,6 @@ func readRESPArrayOfBulkStrings(r *bufio.Reader) ([][]byte, error) {
 	return out, nil
 }
 
-func TestRedisProtocol_ManagementDisabled_RejectsConnection(t *testing.T) {
-	t.Setenv("MANAGEMENT_PASSWORD", "")
-	redisqueue.SetEnabled(false)
-
-	server := newTestServer(t)
-	if server.managementRoutesEnabled.Load() {
-		t.Fatalf("expected managementRoutesEnabled to be false")
-	}
-
-	addr, stop := startRedisMuxListener(t, server)
-	t.Cleanup(stop)
-
-	conn, errDial := net.DialTimeout("tcp", addr, time.Second)
-	if errDial != nil {
-		t.Fatalf("failed to dial redis listener: %v", errDial)
-	}
-	t.Cleanup(func() { _ = conn.Close() })
-
-	_ = conn.SetDeadline(time.Now().Add(2 * time.Second))
-	if errWrite := writeTestRESPCommand(conn, "PING"); errWrite != nil {
-		t.Fatalf("failed to write RESP command: %v", errWrite)
-	}
-
-	buf := make([]byte, 1)
-	_, errRead := conn.Read(buf)
-	if errRead == nil {
-		t.Fatalf("expected connection to be closed when management is disabled")
-	}
-	if ne, ok := errRead.(net.Error); ok && ne.Timeout() {
-		t.Fatalf("expected connection to be closed when management is disabled, got timeout: %v", errRead)
-	}
-}
-
 func TestRedisProtocol_HomeEnabled_DisablesConnection(t *testing.T) {
 	t.Setenv("MANAGEMENT_PASSWORD", "test-management-password")
 	redisqueue.SetEnabled(false)

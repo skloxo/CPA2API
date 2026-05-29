@@ -13,3 +13,12 @@ var (
 	// BuildDate records when the binary was built in UTC.
 	BuildDate = "unknown"
 )
+
+func init() {
+	if Version == "dev" {
+		Version = "v7.2.2-s.4-dev"
+	}
+	if BuildDate == "unknown" {
+		BuildDate = "2026-05-30T08:08:59Z"
+	}
+}

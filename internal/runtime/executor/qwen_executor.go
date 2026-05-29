@@ -91,7 +91,7 @@ func NewQwenExecutor(cfg *config.Config) *QwenExecutor {
 	qwenauth.InitSsxmodManager()
 	e := &QwenExecutor{
 		cfg:       cfg,
-		modelDisc: NewQwenModelDiscovery(cfg),
+		modelDisc: GetQwenModelDiscovery(cfg),
 		pools:     make(map[string]*preheatQueue),
 	}
 	return e

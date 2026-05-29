@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	latestReleaseURL       = "https://api.github.com/repos/router-for-me/CLIProxyAPI/releases/latest"
+	latestReleaseURL       = "https://api.github.com/repos/skloxo/CPA2API/releases/latest"
 	latestReleaseUserAgent = "CLIProxyAPI"
 )
 
@@ -65,6 +65,11 @@ func (h *Handler) GetLatestVersion(c *gin.Context) {
 			log.WithError(errClose).Debug("failed to close latest version response body")
 		}
 	}()
+
+	if resp.StatusCode == http.StatusNotFound {
+		c.JSON(http.StatusOK, gin.H{"latest-version": "No release published yet on skloxo/CPA2API. Please publish a GitHub Release!"})
+		return
+	}
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))

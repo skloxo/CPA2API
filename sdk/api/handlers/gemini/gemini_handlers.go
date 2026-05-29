@@ -48,15 +48,25 @@ func (h *GeminiAPIHandler) Models() []map[string]any {
 // GeminiModels handles the Gemini models listing endpoint.
 // It returns a JSON response containing available Gemini models and their specifications.
 func (h *GeminiAPIHandler) GeminiModels(c *gin.Context) {
+	var excludedModels map[string][]string
+	if val, ok := c.Get("oauthExcludedModels"); ok {
+		excludedModels, _ = val.(map[string][]string)
+	}
+
 	rawModels := h.Models()
 	normalizedModels := make([]map[string]any, 0, len(rawModels))
 	defaultMethods := []string{"generateContent"}
 	for _, model := range rawModels {
+		name, _ := model["name"].(string)
+		if isModelExcluded(name, "gemini", excludedModels) {
+			continue
+		}
+
 		normalizedModel := make(map[string]any, len(model))
 		for k, v := range model {
 			normalizedModel[k] = v
 		}
-		if name, ok := normalizedModel["name"].(string); ok && name != "" {
+		if name != "" {
 			if !strings.HasPrefix(name, "models/") {
 				normalizedModel["name"] = "models/" + name
 			}
@@ -93,6 +103,21 @@ func (h *GeminiAPIHandler) GeminiGetHandler(c *gin.Context) {
 		return
 	}
 	action := strings.TrimPrefix(request.Action, "/")
+
+	var excludedModels map[string][]string
+	if val, ok := c.Get("oauthExcludedModels"); ok {
+		excludedModels, _ = val.(map[string][]string)
+	}
+
+	if isModelExcluded(action, "gemini", excludedModels) {
+		c.JSON(http.StatusNotFound, handlers.ErrorResponse{
+			Error: handlers.ErrorDetail{
+				Message: "Not Found",
+				Type:    "not_found",
+			},
+		})
+		return
+	}
 
 	// Get dynamic models from the global registry and find the matching one
 	availableModels := h.Models()
@@ -338,4 +363,105 @@ func (h *GeminiAPIHandler) forwardGeminiStream(c *gin.Context, flusher http.Flus
 			}
 		},
 	})
+}
+
+func matchWildcard(pattern, value string) bool {
+	if pattern == "" {
+		return false
+	}
+	if !strings.Contains(pattern, "*") {
+		return pattern == value
+	}
+	parts := strings.Split(pattern, "*")
+	if prefix := parts[0]; prefix != "" {
+		if !strings.HasPrefix(value, prefix) {
+			return false
+		}
+		value = value[len(prefix):]
+	}
+	if suffix := parts[len(parts)-1]; suffix != "" {
+		if !strings.HasSuffix(value, suffix) {
+			return false
+		}
+		value = value[:len(value)-len(suffix)]
+	}
+	for i := 1; i < len(parts)-1; i++ {
+		part := parts[i]
+		if part == "" {
+			continue
+		}
+		idx := strings.Index(value, part)
+		if idx < 0 {
+			return false
+		}
+		value = value[idx+len(part):]
+	}
+	return true
+}
+
+func getModelProvider(modelID string) string {
+	id := strings.ToLower(strings.TrimSpace(modelID))
+	baseID := id
+	if idx := strings.Index(id, "/"); idx >= 0 {
+		baseID = id[idx+1:]
+	}
+
+	if strings.HasPrefix(baseID, "gpt-") || strings.HasPrefix(baseID, "dall-e") || strings.HasPrefix(baseID, "text-") || strings.HasPrefix(baseID, "o1-") || strings.HasPrefix(baseID, "o3-") {
+		return "codex"
+	}
+	if strings.HasPrefix(baseID, "claude-") {
+		return "claude"
+	}
+	if strings.HasPrefix(baseID, "gemini-") {
+		return "gemini"
+	}
+	if strings.HasPrefix(baseID, "grok-") {
+		return "xai"
+	}
+	if strings.HasPrefix(baseID, "qwen") {
+		return "qwen"
+	}
+	if strings.Contains(baseID, "moonshot") || strings.HasPrefix(baseID, "kimi") {
+		return "kimi"
+	}
+	return "codex"
+}
+
+func isModelExcluded(modelID string, ownedBy string, excludedModels map[string][]string) bool {
+	if len(excludedModels) == 0 {
+		return false
+	}
+	modelID = strings.ToLower(strings.TrimSpace(modelID))
+	baseID := modelID
+	if idx := strings.Index(modelID, "/"); idx >= 0 {
+		baseID = modelID[idx+1:]
+	}
+
+	providers := []string{
+		strings.ToLower(strings.TrimSpace(ownedBy)),
+		getModelProvider(modelID),
+	}
+	if idx := strings.Index(modelID, "/"); idx >= 0 {
+		prefixProvider := strings.ToLower(strings.TrimSpace(modelID[:idx]))
+		if prefixProvider != "" {
+			providers = append(providers, prefixProvider)
+		}
+	}
+
+	for _, provider := range providers {
+		if provider == "" {
+			continue
+		}
+		excluded, ok := excludedModels[provider]
+		if !ok || len(excluded) == 0 {
+			continue
+		}
+		for _, pattern := range excluded {
+			trimmedPattern := strings.ToLower(strings.TrimSpace(pattern))
+			if trimmedPattern != "" && (matchWildcard(trimmedPattern, modelID) || matchWildcard(trimmedPattern, baseID)) {
+				return true
+			}
+		}
+	}
+	return false
 }

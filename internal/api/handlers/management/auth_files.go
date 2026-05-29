@@ -290,10 +290,17 @@ func (h *Handler) GetAuthFileModels(c *gin.Context) {
 	models := reg.GetModelsForClient(authID)
 
 	// Fallback: if no dynamic models were found and this is a qwen credential,
-	// return the static Qwen model list so the card always shows something useful.
+	// return the discovered models (or fallback static models) filtered by config exclusions.
 	if len(models) == 0 && h.authManager != nil {
 		if auth, ok := h.authManager.GetByID(authID); ok && strings.EqualFold(auth.Provider, "qwen") {
-			models = registry.GetQwenModels()
+			models = registry.GetDiscoveredModels("qwen")
+			if len(models) == 0 {
+				models = registry.GetQwenModels()
+			}
+			if h.cfg != nil {
+				exclusions := h.cfg.OAuthExcludedModels["qwen"]
+				models = applyExcludedModels(models, exclusions)
+			}
 		}
 	}
 
@@ -329,6 +336,85 @@ func (h *Handler) GetAuthFileModels(c *gin.Context) {
 	}
 
 	c.JSON(200, gin.H{"models": result})
+}
+
+// matchWildcard performs case-insensitive wildcard matching where '*' matches any substring.
+func matchWildcard(pattern, value string) bool {
+	if pattern == "" {
+		return false
+	}
+
+	// Fast path for exact match (no wildcard present).
+	if !strings.Contains(pattern, "*") {
+		return pattern == value
+	}
+
+	parts := strings.Split(pattern, "*")
+	// Handle prefix.
+	if prefix := parts[0]; prefix != "" {
+		if !strings.HasPrefix(value, prefix) {
+			return false
+		}
+		value = value[len(prefix):]
+	}
+
+	// Handle suffix.
+	if suffix := parts[len(parts)-1]; suffix != "" {
+		if !strings.HasSuffix(value, suffix) {
+			return false
+		}
+		value = value[:len(value)-len(suffix)]
+	}
+
+	// Handle middle segments in order.
+	for i := 1; i < len(parts)-1; i++ {
+		segment := parts[i]
+		if segment == "" {
+			continue
+		}
+		idx := strings.Index(value, segment)
+		if idx < 0 {
+			return false
+		}
+		value = value[idx+len(segment):]
+	}
+
+	return true
+}
+
+func applyExcludedModels(models []*registry.ModelInfo, excluded []string) []*registry.ModelInfo {
+	if len(models) == 0 || len(excluded) == 0 {
+		return models
+	}
+
+	patterns := make([]string, 0, len(excluded))
+	for _, item := range excluded {
+		if trimmed := strings.TrimSpace(item); trimmed != "" {
+			patterns = append(patterns, strings.ToLower(trimmed))
+		}
+	}
+	if len(patterns) == 0 {
+		return models
+	}
+
+	filtered := make([]*registry.ModelInfo, 0, len(models))
+	for _, model := range models {
+		if model == nil {
+			continue
+		}
+		modelID := strings.ToLower(strings.TrimSpace(model.ID))
+		blocked := false
+		for _, pattern := range patterns {
+			if matchWildcard(pattern, modelID) {
+				blocked = true
+				break
+			}
+		}
+		if !blocked {
+			filtered = append(filtered, model)
+		}
+	}
+	return filtered
 }
 
 // List auth files from disk when the auth manager is unavailable.

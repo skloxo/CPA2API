@@ -13,8 +13,11 @@ RUN go mod download
 
 # Copy source and build
 COPY . .
+ARG VERSION=dev
+ARG COMMIT=none
+ARG BUILD_DATE=unknown
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
-    go build -buildvcs=false -ldflags="-s -w" -o /app/cpa2api ./cmd/server/
+    go build -buildvcs=false -ldflags="-s -w -X 'main.Version=${VERSION}' -X 'main.Commit=${COMMIT}' -X 'main.BuildDate=${BUILD_DATE}'" -o /app/cpa2api ./cmd/server/
 
 # ─── Runtime Stage ────────────────────────────────────────────────────────────
 FROM alpine:3.21

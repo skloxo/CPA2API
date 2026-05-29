@@ -2,9 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { Modal } from '@/components/ui/Modal';
-import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
-import { IconGithub, IconBookOpen, IconExternalLink, IconCode } from '@/components/ui/icons';
+import { IconGithub, IconBookOpen, IconExternalLink } from '@/components/ui/icons';
 import {
   useAuthStore,
   useConfigStore,
@@ -12,7 +10,7 @@ import {
   useModelsStore,
   useThemeStore,
 } from '@/stores';
-import { configApi, versionApi } from '@/services/api';
+import { versionApi } from '@/services/api';
 import { apiKeysApi } from '@/services/api/apiKeys';
 import { classifyModels } from '@/utils/models';
 import { STORAGE_KEY_AUTH } from '@/utils/constants';
@@ -76,8 +74,6 @@ export function SystemPage() {
   const auth = useAuthStore();
   const config = useConfigStore((state) => state.config);
   const fetchConfig = useConfigStore((state) => state.fetchConfig);
-  const clearCache = useConfigStore((state) => state.clearCache);
-  const updateConfigValue = useConfigStore((state) => state.updateConfigValue);
 
   const models = useModelsStore((state) => state.models);
   const modelsLoading = useModelsStore((state) => state.loading);
@@ -88,30 +84,22 @@ export function SystemPage() {
     type: 'success' | 'warning' | 'error' | 'muted';
     message: string;
   }>();
-  const [requestLogModalOpen, setRequestLogModalOpen] = useState(false);
-  const [requestLogDraft, setRequestLogDraft] = useState(false);
-  const [requestLogTouched, setRequestLogTouched] = useState(false);
-  const [requestLogSaving, setRequestLogSaving] = useState(false);
-  const [checkingAppVersion, setCheckingAppVersion] = useState(false);
   const [checkingVersion, setCheckingVersion] = useState(false);
 
   const apiKeysCache = useRef<string[]>([]);
-  const versionTapCount = useRef(0);
-  const versionTapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const otherLabel = useMemo(
     () => (i18n.language?.toLowerCase().startsWith('zh') ? '其他' : 'Other'),
     [i18n.language]
   );
   const groupedModels = useMemo(() => classifyModels(models, { otherLabel }), [models, otherLabel]);
-  const requestLogEnabled = config?.requestLog ?? false;
-  const requestLogDirty = requestLogDraft !== requestLogEnabled;
-  const canEditRequestLog = auth.connectionStatus === 'connected' && Boolean(config);
 
-  const appVersion = __APP_VERSION__ || t('system_info.version_unknown');
   const apiVersion = auth.serverVersion || t('system_info.version_unknown');
-  const buildTime = auth.serverBuildDate
-    ? new Date(auth.serverBuildDate).toLocaleString(i18n.language)
+  const buildTime = auth.serverBuildDate && auth.serverBuildDate !== 'unknown' && auth.serverBuildDate !== 'none'
+    ? (() => {
+        const date = new Date(auth.serverBuildDate);
+        return isNaN(date.getTime()) ? t('system_info.version_unknown') : date.toLocaleString(i18n.language);
+      })()
     : t('system_info.version_unknown');
 
   const getIconForCategory = (categoryId: string): string | null => {
@@ -224,99 +212,8 @@ export function SystemPage() {
     });
   };
 
-  const openRequestLogModal = useCallback(() => {
-    setRequestLogTouched(false);
-    setRequestLogDraft(requestLogEnabled);
-    setRequestLogModalOpen(true);
-  }, [requestLogEnabled]);
+  // Removed Tap-7 easter egg logic
 
-  const handleInfoVersionTap = useCallback(() => {
-    versionTapCount.current += 1;
-    if (versionTapTimer.current) {
-      clearTimeout(versionTapTimer.current);
-    }
-
-    if (versionTapCount.current >= 7) {
-      versionTapCount.current = 0;
-      versionTapTimer.current = null;
-      openRequestLogModal();
-      return;
-    }
-
-    versionTapTimer.current = setTimeout(() => {
-      versionTapCount.current = 0;
-      versionTapTimer.current = null;
-    }, 1500);
-  }, [openRequestLogModal]);
-
-  const handleRequestLogClose = useCallback(() => {
-    setRequestLogModalOpen(false);
-    setRequestLogTouched(false);
-  }, []);
-
-  const handleRequestLogSave = async () => {
-    if (!canEditRequestLog) return;
-    if (!requestLogDirty) {
-      setRequestLogModalOpen(false);
-      return;
-    }
-
-    const previous = requestLogEnabled;
-    setRequestLogSaving(true);
-    updateConfigValue('request-log', requestLogDraft);
-
-    try {
-      await configApi.updateRequestLog(requestLogDraft);
-      clearCache('request-log');
-      showNotification(t('notification.request_log_updated'), 'success');
-      setRequestLogModalOpen(false);
-    } catch (error: unknown) {
-      const message =
-        error instanceof Error ? error.message : typeof error === 'string' ? error : '';
-      updateConfigValue('request-log', previous);
-      showNotification(
-        `${t('notification.update_failed')}${message ? `: ${message}` : ''}`,
-        'error'
-      );
-    } finally {
-      setRequestLogSaving(false);
-    }
-  };
-
-  const handleAppVersionCheck = useCallback(async () => {
-    setCheckingAppVersion(true);
-    try {
-      const data = await versionApi.checkManagerLatest();
-      const latestRaw = data?.tag_name ?? data?.name ?? data?.latest_version ?? data?.latest ?? '';
-      const latest = typeof latestRaw === 'string' ? latestRaw : String(latestRaw ?? '');
-      const comparison = compareVersions(latest, __APP_VERSION__);
-
-      if (!latest) {
-        showNotification(t('system_info.manager_version_check_error'), 'error');
-        return;
-      }
-
-      if (comparison === null) {
-        showNotification(t('system_info.manager_version_current_missing'), 'warning');
-        return;
-      }
-
-      if (comparison > 0) {
-        showNotification(
-          t('system_info.manager_version_update_available', { version: latest }),
-          'warning'
-        );
-      } else {
-        showNotification(t('system_info.manager_version_is_latest'), 'success');
-      }
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : typeof error === 'string' ? error : '';
-      const suffix = message ? `: ${message}` : '';
-      showNotification(`${t('system_info.manager_version_check_error')}${suffix}`, 'error');
-    } finally {
-      setCheckingAppVersion(false);
-    }
-  }, [showNotification, t]);
 
   const handleVersionCheck = useCallback(async () => {
     setCheckingVersion(true);
@@ -357,19 +254,9 @@ export function SystemPage() {
     });
   }, [fetchConfig]);
 
-  useEffect(() => {
-    if (requestLogModalOpen && !requestLogTouched) {
-      setRequestLogDraft(requestLogEnabled);
-    }
-  }, [requestLogModalOpen, requestLogTouched, requestLogEnabled]);
 
-  useEffect(() => {
-    return () => {
-      if (versionTapTimer.current) {
-        clearTimeout(versionTapTimer.current);
-      }
-    };
-  }, []);
+
+  // Removed versionTapTimer cleanup
 
   useEffect(() => {
     fetchModels();
@@ -387,127 +274,60 @@ export function SystemPage() {
           </div>
 
           <div className={styles.aboutInfoGrid}>
-            <div
-              className={`${styles.infoTile} ${styles.tapTile}`}
-              role="button"
-              tabIndex={0}
-              onClick={handleInfoVersionTap}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' || event.key === ' ') {
-                  event.preventDefault();
-                  handleInfoVersionTap();
-                }
-              }}
-            >
-              <div className={styles.tileHeader}>
-                <div className={styles.tileLabel}>{t('footer.version')}</div>
-                <Button
+            <div className={styles.infoTile}>
+              <div className={styles.tileLabel}>{t('footer.api_version')}</div>
+              <div className={styles.tileValue}>{apiVersion}</div>
+              <div className={styles.tileSub}>
+                <button
                   type="button"
-                  variant="ghost"
-                  size="sm"
-                  className={styles.tileAction}
+                  className={styles.updateButton}
                   onClick={(event) => {
                     event.stopPropagation();
-                    void handleAppVersionCheck();
+                    void handleVersionCheck();
                   }}
-                  onKeyDown={(event) => event.stopPropagation()}
-                  loading={checkingAppVersion}
-                  title={t('system_info.version_check_button')}
-                  aria-label={t('system_info.version_check_button')}
+                  disabled={checkingVersion}
                 >
-                  {t('system_info.version_check_button')}
-                </Button>
+                  {checkingVersion ? t('common.loading') : t('system_info.version_check_button')}
+                </button>
               </div>
-              <div className={styles.tileValue}>{appVersion}</div>
-            </div>
-
-            <div className={styles.infoTile}>
-              <div className={styles.tileHeader}>
-                <div className={styles.tileLabel}>{t('footer.api_version')}</div>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className={styles.tileAction}
-                  onClick={() => void handleVersionCheck()}
-                  loading={checkingVersion}
-                  title={t('system_info.version_check_button')}
-                  aria-label={t('system_info.version_check_button')}
-                >
-                  {t('system_info.version_check_button')}
-                </Button>
-              </div>
-              <div className={styles.tileValue}>{apiVersion}</div>
             </div>
 
             <div className={styles.infoTile}>
               <div className={styles.tileLabel}>{t('footer.build_date')}</div>
               <div className={styles.tileValue}>{buildTime}</div>
+              <div className={styles.tileSub}>&nbsp;</div>
             </div>
 
-            <div className={styles.infoTile}>
+            <div className={`${styles.infoTile} ${styles.connectionTile}`}>
               <div className={styles.tileLabel}>{t('connection.status')}</div>
               <div className={styles.tileValue}>{t(`common.${auth.connectionStatus}_status`)}</div>
               <div className={styles.tileSub}>{auth.apiBase || '-'}</div>
             </div>
           </div>
-        </Card>
 
-        <Card title={t('system_info.quick_links_title')}>
-          <p className={styles.sectionDescription}>{t('system_info.quick_links_desc')}</p>
-          <div className={styles.quickLinks}>
+          <div className={styles.cardDivider} />
+
+          <div className={styles.aboutLinks}>
             <a
-              href="https://github.com/router-for-me/CLIProxyAPI"
+              href="https://github.com/skloxo/CPA2API"
               target="_blank"
               rel="noopener noreferrer"
-              className={styles.linkCard}
+              className={styles.aboutLink}
             >
-              <div className={`${styles.linkIcon} ${styles.github}`}>
-                <IconGithub size={22} />
-              </div>
-              <div className={styles.linkContent}>
-                <div className={styles.linkTitle}>
-                  {t('system_info.link_main_repo')}
-                  <IconExternalLink size={14} />
-                </div>
-                <div className={styles.linkDesc}>{t('system_info.link_main_repo_desc')}</div>
-              </div>
+              <IconGithub size={16} />
+              <span>{t('system_info.link_main_repo')}</span>
+              <IconExternalLink size={12} />
             </a>
 
             <a
-              href="https://github.com/seakee/CPA-Manager"
+              href="https://github.com/skloxo/CPA2API/blob/main/skills/cpa2api-skill/SKILL.md"
               target="_blank"
               rel="noopener noreferrer"
-              className={styles.linkCard}
+              className={styles.aboutLink}
             >
-              <div className={`${styles.linkIcon} ${styles.github}`}>
-                <IconCode size={22} />
-              </div>
-              <div className={styles.linkContent}>
-                <div className={styles.linkTitle}>
-                  {t('system_info.link_webui_repo')}
-                  <IconExternalLink size={14} />
-                </div>
-                <div className={styles.linkDesc}>{t('system_info.link_webui_repo_desc')}</div>
-              </div>
-            </a>
-
-            <a
-              href="https://help.router-for.me/"
-              target="_blank"
-              rel="noopener noreferrer"
-              className={styles.linkCard}
-            >
-              <div className={`${styles.linkIcon} ${styles.docs}`}>
-                <IconBookOpen size={22} />
-              </div>
-              <div className={styles.linkContent}>
-                <div className={styles.linkTitle}>
-                  {t('system_info.link_docs')}
-                  <IconExternalLink size={14} />
-                </div>
-                <div className={styles.linkDesc}>{t('system_info.link_docs_desc')}</div>
-              </div>
+              <IconBookOpen size={16} />
+              <span>{t('system_info.link_docs')}</span>
+              <IconExternalLink size={12} />
             </a>
           </div>
         </Card>
@@ -577,40 +397,6 @@ export function SystemPage() {
           </div>
         </Card>
       </div>
-
-      <Modal
-        open={requestLogModalOpen}
-        onClose={handleRequestLogClose}
-        title={t('basic_settings.request_log_title')}
-        footer={
-          <>
-            <Button variant="secondary" onClick={handleRequestLogClose} disabled={requestLogSaving}>
-              {t('common.cancel')}
-            </Button>
-            <Button
-              onClick={handleRequestLogSave}
-              loading={requestLogSaving}
-              disabled={!canEditRequestLog || !requestLogDirty}
-            >
-              {t('common.save')}
-            </Button>
-          </>
-        }
-      >
-        <div className="request-log-modal">
-          <div className="status-badge warning">{t('basic_settings.request_log_warning')}</div>
-          <ToggleSwitch
-            label={t('basic_settings.request_log_enable')}
-            labelPosition="left"
-            checked={requestLogDraft}
-            disabled={!canEditRequestLog || requestLogSaving}
-            onChange={(value) => {
-              setRequestLogDraft(value);
-              setRequestLogTouched(true);
-            }}
-          />
-        </div>
-      </Modal>
     </div>
   );
 }

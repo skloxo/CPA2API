@@ -132,3 +132,33 @@ func TestRegisterModelsForAuth_OpenAICompatibilityImageModelType(t *testing.T) {
 		t.Fatal("expected chat model to keep default thinking support")
 	}
 }
+
+func TestIsModelExcluded_DoesNotExcludeXByDefault(t *testing.T) {
+	service := &Service{
+		cfg: &config.Config{
+			OAuthExcludedModels: map[string][]string{
+				"gemini-cli": {"gemini-2.5-pro"},
+			},
+			OAuthModelAlias: map[string][]config.OAuthModelAlias{
+				"gemini-cli": {
+					{Name: "gemini-2.5-flash", Alias: "x"},
+				},
+			},
+		},
+	}
+
+	// Model named "x" should not be excluded by default.
+	if service.IsModelExcluded("x", "gemini-cli") {
+		t.Error("expected model 'x' to NOT be excluded by default")
+	}
+
+	// Model with alias "x" (gemini-2.5-flash) should not be excluded by default.
+	if service.IsModelExcluded("gemini-2.5-flash", "gemini-cli") {
+		t.Error("expected model 'gemini-2.5-flash' (with alias 'x') to NOT be excluded by default")
+	}
+
+	// Model explicitly in OAuthExcludedModels should be excluded.
+	if !service.IsModelExcluded("gemini-2.5-pro", "gemini-cli") {
+		t.Error("expected model 'gemini-2.5-pro' to be excluded")
+	}
+}

@@ -15,6 +15,9 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+// IsModelExcludedFunc is a callback registered by the service/config layer to dynamically filter out excluded models.
+var IsModelExcludedFunc func(modelID string, provider string) bool
+
 // OpenAIImageModelType marks models that are callable through OpenAI-compatible image endpoints.
 const OpenAIImageModelType = "openai-image"
 
@@ -171,6 +174,10 @@ func LookupModelInfo(modelID string, provider ...string) *ModelInfo {
 	p := ""
 	if len(provider) > 0 {
 		p = strings.ToLower(strings.TrimSpace(provider[0]))
+	}
+
+	if IsModelExcludedFunc != nil && IsModelExcludedFunc(modelID, p) {
+		return nil
 	}
 
 	if info := GetGlobalRegistry().GetModelInfo(modelID, p); info != nil {
@@ -735,6 +742,10 @@ func (r *ModelRegistry) ClientSupportsModel(clientID, modelID string) bool {
 		return false
 	}
 
+	if IsModelExcludedFunc != nil && IsModelExcludedFunc(modelID, "") {
+		return false
+	}
+
 	r.mutex.RLock()
 	defer r.mutex.RUnlock()
 
@@ -825,6 +836,11 @@ func (r *ModelRegistry) buildAvailableModelsLocked(handlerType string, now time.
 		}
 
 		if effectiveClients > 0 || (availableClients > 0 && (expiredClients > 0 || cooldownSuspended > 0) && otherSuspended == 0) {
+			if registration.Info != nil {
+				if IsModelExcludedFunc != nil && IsModelExcludedFunc(registration.Info.ID, registration.Info.Type) {
+					continue
+				}
+			}
 			model := r.convertModelToMap(registration.Info, handlerType)
 			if model != nil {
 				models = append(models, model)
@@ -1003,6 +1019,9 @@ func (r *ModelRegistry) GetAvailableModelsByProvider(provider string) []*ModelIn
 // Returns:
 //   - int: Number of available clients for the model
 func (r *ModelRegistry) GetModelCount(modelID string) int {
+	if IsModelExcludedFunc != nil && IsModelExcludedFunc(modelID, "") {
+		return 0
+	}
 	r.mutex.RLock()
 	defer r.mutex.RUnlock()
 
@@ -1088,6 +1107,9 @@ func (r *ModelRegistry) GetModelProviders(modelID string) []string {
 
 // GetModelInfo returns ModelInfo, prioritizing provider-specific definition if available.
 func (r *ModelRegistry) GetModelInfo(modelID, provider string) *ModelInfo {
+	if IsModelExcludedFunc != nil && IsModelExcludedFunc(modelID, provider) {
+		return nil
+	}
 	r.mutex.RLock()
 	defer r.mutex.RUnlock()
 	if reg, ok := r.models[modelID]; ok && reg != nil {

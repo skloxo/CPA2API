@@ -4518,4 +4518,3 @@ func (m *Manager) ActiveConcurrency(auth *Auth) int {
 	}
 	return len(sem)
 }
-

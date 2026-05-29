@@ -6,8 +6,6 @@ import { parse as parseYaml, parseDocument } from 'yaml';
 import { usePageTransitionLayer } from '@/components/common/PageTransitionLayer';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
-import { Select } from '@/components/ui/Select';
-import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
 import {
   IconCheck,
   IconChevronDown,
@@ -39,7 +37,7 @@ import {
 import { detectApiBaseFromLocation } from '@/utils/connection';
 import styles from './ConfigPage.module.scss';
 
-type ConfigEditorTab = 'visual' | 'source' | 'manager';
+type ConfigEditorTab = 'visual' | 'source';
 
 const MANAGER_COLLECTOR_DEFAULT = {
   enabled: true,
@@ -108,7 +106,7 @@ export function ConfigPage() {
 
   const [activeTab, setActiveTab] = useState<ConfigEditorTab>(() => {
     const saved = localStorage.getItem('config-management:tab');
-    if (saved === 'visual' || saved === 'source' || saved === 'manager') return saved;
+    if (saved === 'visual' || saved === 'source') return saved;
     return 'visual';
   });
 
@@ -154,8 +152,7 @@ export function ConfigPage() {
   const floatingActionsRef = useRef<HTMLDivElement>(null);
 
   const disableControls = connectionStatus !== 'connected';
-  const isManagerTab = activeTab === 'manager';
-  const isDirty = isManagerTab ? managerDirty : dirty || visualDirty;
+  const isDirty = dirty || visualDirty || (activeTab === 'visual' && managerDirty);
   const shouldRenderFloatingActions = isCurrentLayer;
   const hasVisualModeError = !!visualParseError;
   const hasVisualValidationErrors =
@@ -248,9 +245,12 @@ export function ConfigPage() {
     if (panelHostedByUsageService) {
       return normalizeUsageServiceBase(detectedPanelBase);
     }
-    const preferred = managerServiceBase || (usageServiceEnabled && usageServiceBase ? usageServiceBase : '');
-    return normalizeUsageServiceBase(preferred || '');
-  }, [detectedPanelBase, managerServiceBase, panelHostedByUsageService, usageServiceBase, usageServiceEnabled]);
+    const preferred = managerServiceBase.trim();
+    if (!preferred) {
+      return normalizeUsageServiceBase(detectedPanelBase || (typeof window !== 'undefined' ? window.location.protocol + '//' + window.location.host : ''));
+    }
+    return normalizeUsageServiceBase(preferred);
+  }, [detectedPanelBase, managerServiceBase, panelHostedByUsageService]);
 
   const syncUsageServiceBootstrap = useCallback(
     (serviceBase: string) => {
@@ -272,8 +272,9 @@ export function ConfigPage() {
     (response: ManagerConfigResponse, fallbackBase: string) => {
       const nextConfig = response.config;
       const collector = nextConfig.collector ?? MANAGER_COLLECTOR_DEFAULT;
+      const rawServiceBase = nextConfig.externalUsageService?.serviceBase;
       const serviceBase =
-        nextConfig.externalUsageService?.serviceBase || fallbackBase || managerServiceBase;
+        (rawServiceBase !== undefined && rawServiceBase !== null) ? rawServiceBase : (fallbackBase || managerServiceBase);
 
       setManagerConfig(nextConfig);
       setManagerConfigSource(response.source || '');
@@ -318,9 +319,6 @@ export function ConfigPage() {
     syncUsageServiceBootstrap,
   ]);
 
-  const setManagerFieldDirty = useCallback(() => {
-    setManagerDirty(true);
-  }, []);
 
   const readManagerPositiveInteger = useCallback(
     (value: string, label: string) => {
@@ -357,9 +355,25 @@ export function ConfigPage() {
   }, [activeTab, showNotification, t, visualParseError]);
 
   useEffect(() => {
-    if (activeTab !== 'manager') return;
     void loadManagerConfig();
-  }, [activeTab, loadManagerConfig]);
+  }, [loadManagerConfig]);
+
+  const handleManagerConfigChange = useCallback((patch: Partial<{
+    serviceBase: string;
+    requestMonitoringEnabled: boolean;
+    collectorMode: string;
+    pollIntervalMs: string;
+    batchSize: string;
+    queryLimit: string;
+  }>) => {
+    if (patch.serviceBase !== undefined) setManagerServiceBase(patch.serviceBase);
+    if (patch.requestMonitoringEnabled !== undefined) setManagerRequestMonitoringEnabled(patch.requestMonitoringEnabled);
+    if (patch.collectorMode !== undefined) setManagerCollectorMode(patch.collectorMode);
+    if (patch.pollIntervalMs !== undefined) setManagerPollIntervalMs(patch.pollIntervalMs);
+    if (patch.batchSize !== undefined) setManagerBatchSize(patch.batchSize);
+    if (patch.queryLimit !== undefined) setManagerQueryLimit(patch.queryLimit);
+    setManagerDirty(true);
+  }, []);
 
   const handleConfirmSave = async () => {
     setSaving(true);
@@ -398,6 +412,10 @@ export function ConfigPage() {
       if (commercialModeChanged) {
         showNotification(t('notification.commercial_mode_restart_required'), 'warning');
       }
+
+      if (activeTab === 'visual' && managerDirty) {
+        await handleManagerSave();
+      }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : '';
       showNotification(`${t('notification.save_failed')}: ${message}`, 'error');
@@ -408,12 +426,12 @@ export function ConfigPage() {
 
   const handleManagerSave = async () => {
     if (disableControls) return;
-    const serviceBase = resolveManagerServiceBase();
-    if (!serviceBase) {
+    const isEmbeddedUsageService = panelHostedByUsageService === true;
+    if (managerRequestMonitoringEnabled && !isEmbeddedUsageService && !managerServiceBase.trim()) {
       showNotification(t('config_management.manager.service_base_required'), 'warning');
       return;
     }
-    const isEmbeddedUsageService = panelHostedByUsageService === true;
+    const serviceBase = resolveManagerServiceBase();
     setManagerSaving(true);
     try {
       const pollIntervalMs = managerRequestMonitoringEnabled
@@ -442,7 +460,7 @@ export function ConfigPage() {
         ...(managerConfig ?? {
           cpaConnection: { cpaBaseUrl: apiBase, managementKey },
           collector: MANAGER_COLLECTOR_DEFAULT,
-          externalUsageService: { enabled: !isEmbeddedUsageService, serviceBase: !isEmbeddedUsageService ? serviceBase : '' },
+          externalUsageService: { enabled: !isEmbeddedUsageService, serviceBase: !isEmbeddedUsageService ? managerServiceBase.trim() : '' },
         }),
         cpaConnection: {
           ...(managerConfig?.cpaConnection ?? {}),
@@ -459,7 +477,7 @@ export function ConfigPage() {
         },
         externalUsageService: {
           enabled: !isEmbeddedUsageService,
-          serviceBase: !isEmbeddedUsageService ? serviceBase : '',
+          serviceBase: !isEmbeddedUsageService ? managerServiceBase.trim() : '',
         },
       };
       const response = await usageServiceApi.saveManagerConfig(serviceBase, nextConfig, managementKey);
@@ -481,11 +499,6 @@ export function ConfigPage() {
   };
 
   const handleSave = async () => {
-    if (activeTab === 'manager') {
-      await handleManagerSave();
-      return;
-    }
-
     if (activeTab === 'visual' && visualParseError) {
       showNotification(t('config_management.visual_mode_save_blocked'), 'error');
       return;
@@ -527,13 +540,20 @@ export function ConfigPage() {
         }
       }
 
-      if (diffOriginal === nextMergedYaml) {
+      const visualChanged = diffOriginal !== nextMergedYaml;
+
+      if (!visualChanged) {
         setDirty(false);
         setContent(latestServerYaml);
         setServerYaml(latestServerYaml);
         setMergedYaml(nextMergedYaml);
         loadVisualValuesFromYaml(latestServerYaml);
-        showNotification(t('config_management.diff.no_changes'), 'info');
+
+        if (activeTab === 'visual' && managerDirty) {
+          await handleManagerSave();
+        } else {
+          showNotification(t('config_management.diff.no_changes'), 'info');
+        }
         return;
       }
 
@@ -556,12 +576,6 @@ export function ConfigPage() {
   const handleTabChange = useCallback(
     (tab: ConfigEditorTab) => {
       if (tab === activeTab) return;
-
-      if (tab === 'manager') {
-        setActiveTab(tab);
-        localStorage.setItem('config-management:tab', tab);
-        return;
-      }
 
       if (tab === 'source') {
         // Only rewrite YAML when there are pending visual changes; otherwise preserve raw YAML + comments.
@@ -729,14 +743,6 @@ export function ConfigPage() {
 
   // Status text
   const getStatusText = () => {
-    if (isManagerTab) {
-      if (disableControls) return t('config_management.status_disconnected');
-      if (managerLoading) return t('config_management.status_loading');
-      if (managerError) return t('config_management.status_load_failed');
-      if (managerSaving) return t('config_management.status_saving');
-      if (managerDirty) return t('config_management.status_dirty');
-      return t('config_management.status_loaded');
-    }
     if (disableControls) return t('config_management.status_disconnected');
     if (loading) return t('config_management.status_loading');
     if (error) return t('config_management.status_load_failed');
@@ -749,12 +755,6 @@ export function ConfigPage() {
   };
 
   const getStatusClass = () => {
-    if (isManagerTab) {
-      if (managerError) return styles.error;
-      if (managerDirty) return styles.modified;
-      if (!managerLoading && !managerSaving) return styles.saved;
-      return '';
-    }
     if (error || hasVisualModeError || hasVisualValidationErrors) return styles.error;
     if (isDirty) return styles.modified;
     if (!loading && !saving) return styles.saved;
@@ -762,20 +762,6 @@ export function ConfigPage() {
   };
 
   const getFloatingStatusText = () => {
-    if (isManagerTab) {
-      if (!isMobile) return getStatusText();
-      if (disableControls)
-        return t('config_management.status_disconnected_short', { defaultValue: 'Disconnected' });
-      if (managerLoading)
-        return t('config_management.status_loading_short', { defaultValue: 'Loading' });
-      if (managerError)
-        return t('config_management.status_load_failed_short', { defaultValue: 'Failed' });
-      if (managerSaving)
-        return t('config_management.status_saving_short', { defaultValue: 'Saving' });
-      if (managerDirty)
-        return t('config_management.status_dirty_short', { defaultValue: 'Unsaved' });
-      return t('config_management.status_loaded_short', { defaultValue: 'Loaded' });
-    }
     if (!isMobile) return getStatusText();
     if (disableControls)
       return t('config_management.status_disconnected_short', { defaultValue: 'Disconnected' });
@@ -791,26 +777,9 @@ export function ConfigPage() {
   };
 
   const handleReload = useCallback(() => {
-    if (activeTab === 'manager') {
-      if (!managerDirty) {
-        void loadManagerConfig();
-        return;
-      }
-      showConfirmation({
-        title: t('common.unsaved_changes_title'),
-        message: t('config_management.reload_confirm_message'),
-        confirmText: t('config_management.reload'),
-        cancelText: t('common.cancel'),
-        variant: 'danger',
-        onConfirm: async () => {
-          await loadManagerConfig();
-        },
-      });
-      return;
-    }
-
     if (!isDirty) {
       void loadConfig();
+      void loadManagerConfig();
       return;
     }
 
@@ -822,9 +791,10 @@ export function ConfigPage() {
       variant: 'danger',
       onConfirm: async () => {
         await loadConfig();
+        await loadManagerConfig();
       },
     });
-  }, [activeTab, isDirty, loadConfig, loadManagerConfig, managerDirty, showConfirmation, t]);
+  }, [isDirty, loadConfig, loadManagerConfig, showConfirmation, t]);
 
   const floatingActions = (
     <div className={styles.floatingActionContainer} ref={floatingActionsRef}>
@@ -851,15 +821,14 @@ export function ConfigPage() {
           className={styles.floatingActionButton}
           onClick={handleSave}
           disabled={
-            isManagerTab
-              ? disableControls || managerLoading || managerSaving || !managerDirty
-              : disableControls ||
-                loading ||
-                saving ||
-                !isDirty ||
-                diffModalOpen ||
-                hasVisualModeError ||
-                hasVisualValidationErrors
+            disableControls ||
+            loading ||
+            saving ||
+            managerSaving ||
+            !isDirty ||
+            diffModalOpen ||
+            hasVisualModeError ||
+            hasVisualValidationErrors
           }
           title={t('config_management.save')}
           aria-label={t('config_management.save')}
@@ -872,17 +841,9 @@ export function ConfigPage() {
   );
 
   const pageDescription =
-    activeTab === 'manager'
-      ? t('config_management.manager.description')
-      : activeTab === 'visual'
+    activeTab === 'visual'
       ? t('config_management.visual.notice')
       : t('config_management.description');
-  const managerServiceTarget = resolveManagerServiceBase();
-  const canConfigureRequestMonitoring = Boolean(managerServiceTarget);
-  const managerRuntimeModeLabel =
-    panelHostedByUsageService === true
-      ? t('config_management.manager.runtime_embedded')
-      : t('config_management.manager.runtime_external');
 
   return (
     <div className={styles.container}>
@@ -910,222 +871,40 @@ export function ConfigPage() {
             >
               {t('config_management.tabs.source')}
             </button>
-            <button
-              type="button"
-              className={`${styles.tabItem} ${activeTab === 'manager' ? styles.tabActive : ''}`}
-              onClick={() => handleTabChange('manager')}
-              disabled={managerSaving || managerLoading}
-            >
-              {t('config_management.tabs.manager')}
-            </button>
           </div>
           <div className={`${styles.statusBadge} ${getStatusClass()}`}>{getStatusText()}</div>
         </div>
 
         <div className={styles.content}>
-          {activeTab !== 'manager' && error && <div className="error-box">{error}</div>}
-          {activeTab === 'manager' && managerError && (
-            <div className="error-box">{managerError}</div>
-          )}
-          {activeTab !== 'manager' && !error && visualParseError && (
+          {error && <div className="error-box">{error}</div>}
+          {!error && visualParseError && (
             <div className="error-box">
               {t('config_management.visual_mode_unavailable_detail', { message: visualParseError })}
             </div>
           )}
 
-          {activeTab === 'manager' ? (
-            <div className={styles.managerConfigPanel}>
-              <div className={styles.managerConfigHeader}>
-                <div>
-                  <h2>{t('config_management.manager.title')}</h2>
-                  <p>
-                    {t('config_management.manager.boundary_hint')}
-                  </p>
-                </div>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => void loadManagerConfig()}
-                  loading={managerLoading}
-                >
-                  {t('common.refresh')}
-                </Button>
-              </div>
-
-              <section className={styles.managerSection}>
-                <div className={styles.managerSectionHeader}>
-                  <div>
-                    <h3>{t('config_management.manager.runtime_title')}</h3>
-                    <p>
-                      {panelHostedByUsageService === true
-                        ? t('config_management.manager.runtime_embedded_hint')
-                        : t('config_management.manager.runtime_external_hint')}
-                    </p>
-                  </div>
-                  <span className={styles.managerRuntimeBadge}>{managerRuntimeModeLabel}</span>
-                </div>
-
-                {panelHostedByUsageService === true ? (
-                  <div className={styles.managerReadonlyGrid}>
-                    <div>
-                      <span>{t('config_management.manager.service_base')}</span>
-                      <strong>{detectedPanelBase}</strong>
-                    </div>
-                  </div>
-                ) : (
-                  <Input
-                    label={t('config_management.manager.external_service_base')}
-                    placeholder="http://127.0.0.1:18317"
-                    value={managerServiceBase}
-                    onChange={(event) => {
-                      setManagerServiceBase(event.target.value);
-                      setManagerFieldDirty();
-                    }}
-                    disabled={disableControls || managerLoading}
-                    hint={t('config_management.manager.external_service_hint')}
-                  />
-                )}
-              </section>
-
-              <section className={styles.managerSection}>
-                <div className={styles.managerSectionHeader}>
-                  <div>
-                    <h3>{t('config_management.manager.request_monitoring_title')}</h3>
-                    <p>
-                      {t('config_management.manager.request_monitoring_hint')}
-                    </p>
-                  </div>
-                  <ToggleSwitch
-                    label={t('config_management.manager.request_monitoring_enabled')}
-                    labelPosition="left"
-                    checked={managerRequestMonitoringEnabled}
-                    onChange={(value) => {
-                      setManagerRequestMonitoringEnabled(value);
-                      setManagerFieldDirty();
-                    }}
-                    disabled={disableControls || managerLoading || !canConfigureRequestMonitoring}
-                  />
-                </div>
-
-                {!canConfigureRequestMonitoring ? (
-                  <div className={styles.managerDependencyNote}>
-                    {t('config_management.manager.request_monitoring_dependency')}
-                  </div>
-                ) : null}
-
-                <div className={styles.managerQueueNote}>
-                  {t('config_management.manager.request_monitoring_queue_note')}
-                </div>
-
-                <div className={styles.managerConfigGrid}>
-                  <div className={styles.managerField}>
-                    <span className={styles.managerFieldLabel}>
-                      {t('config_management.manager.collector_mode')}
-                    </span>
-                    <Select
-                      value={managerCollectorMode}
-                      options={managerCollectorModeOptions}
-                      triggerClassName={styles.managerSelectTrigger}
-                      onChange={(value) => {
-                        setManagerCollectorMode(value);
-                        setManagerFieldDirty();
-                      }}
-                      disabled={
-                        disableControls ||
-                        managerLoading ||
-                        !managerRequestMonitoringEnabled ||
-                        !canConfigureRequestMonitoring
-                      }
-                      ariaLabel={t('config_management.manager.collector_mode')}
-                    />
-                  </div>
-                  <Input
-                    label={t('config_management.manager.poll_interval_ms')}
-                    type="number"
-                    min="1"
-                    placeholder="500"
-                    value={managerPollIntervalMs}
-                    onChange={(event) => {
-                      setManagerPollIntervalMs(event.target.value);
-                      setManagerFieldDirty();
-                    }}
-                    disabled={
-                      disableControls ||
-                      managerLoading ||
-                      !managerRequestMonitoringEnabled ||
-                      !canConfigureRequestMonitoring
-                    }
-                    hint={t('config_management.manager.poll_interval_hint', {
-                      seconds: managerRetentionSeconds,
-                    })}
-                  />
-                  <Input
-                    label={t('config_management.manager.batch_size')}
-                    type="number"
-                    min="1"
-                    placeholder="100"
-                    value={managerBatchSize}
-                    onChange={(event) => {
-                      setManagerBatchSize(event.target.value);
-                      setManagerFieldDirty();
-                    }}
-                    disabled={
-                      disableControls ||
-                      managerLoading ||
-                      !managerRequestMonitoringEnabled ||
-                      !canConfigureRequestMonitoring
-                    }
-                  />
-                  <Input
-                    label={t('config_management.manager.query_limit')}
-                    type="number"
-                    min="1"
-                    placeholder="50000"
-                    value={managerQueryLimit}
-                    onChange={(event) => {
-                      setManagerQueryLimit(event.target.value);
-                      setManagerFieldDirty();
-                    }}
-                    disabled={
-                      disableControls ||
-                      managerLoading ||
-                      !managerRequestMonitoringEnabled ||
-                      !canConfigureRequestMonitoring
-                    }
-                  />
-                </div>
-              </section>
-
-              <div className={styles.managerMetaGrid}>
-                <div>
-                  <span>{t('config_management.manager.config_source')}</span>
-                  <strong>{managerConfigSourceLabel}</strong>
-                </div>
-                <div>
-                  <span>{t('config_management.manager.cpa_usage_enabled')}</span>
-                  <strong>
-                    {managerCPAUsage?.usageStatisticsEnabled
-                      ? t('common.enabled')
-                      : t('common.disabled')}
-                  </strong>
-                </div>
-                <div>
-                  <span>{t('config_management.manager.cpa_retention')}</span>
-                  <strong>
-                    {t('config_management.manager.cpa_retention_value', {
-                      seconds: managerRetentionSeconds,
-                    })}
-                  </strong>
-                </div>
-              </div>
-            </div>
-          ) : activeTab === 'visual' ? (
+          {activeTab === 'visual' ? (
             <VisualConfigEditor
               values={visualValues}
               validationErrors={visualValidationErrors}
               hasPayloadValidationErrors={visualHasPayloadValidationErrors}
               disabled={disableControls || loading}
               onChange={setVisualValues}
+              managerServiceBase={managerServiceBase}
+              panelHostedByUsageService={panelHostedByUsageService}
+              managerRequestMonitoringEnabled={managerRequestMonitoringEnabled}
+              managerCollectorMode={managerCollectorMode}
+              managerPollIntervalMs={managerPollIntervalMs}
+              managerBatchSize={managerBatchSize}
+              managerQueryLimit={managerQueryLimit}
+              managerConfigSourceLabel={managerConfigSourceLabel}
+              managerCPAUsage={managerCPAUsage}
+              managerRetentionSeconds={managerRetentionSeconds}
+              managerCollectorModeOptions={managerCollectorModeOptions}
+              managerLoading={managerLoading}
+              managerError={managerError}
+              detectedPanelBase={detectedPanelBase}
+              onManagerConfigChange={handleManagerConfigChange}
             />
           ) : (
             <div className={styles.sourceWorkspace}>

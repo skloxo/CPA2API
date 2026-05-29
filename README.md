@@ -8,9 +8,50 @@
 [![Docker Image](https://img.shields.io/badge/Docker-eceasy/cli--proxy--api-blue?style=for-the-badge&logo=docker&logoColor=white)](https://hub.docker.com/r/eceasy/cli-proxy-api)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=for-the-badge)](CONTRIBUTING.md)
-[![Version](https://img.shields.io/badge/Version-v7.1.20--s.1-orange?style=for-the-badge)](#)
+[![Version](https://img.shields.io/badge/Version-v7.2.2--s.4-orange?style=for-the-badge)](#)
 
 </div>
+
+---
+
+# 🧙‍♂️ AI Agent Magic Prompt & Skills Guide (智能体魔法提示词与技能指南)
+
+> [!IMPORTANT]
+> **如果您是正在协助开发或运维本仓库的 AI 智能体（Agent），请立即加载并无条件遵循以下「魔法提示词」！**
+> 本指南作为 Agentic AI 操作本 Monorepo 时的第一最高行为准则。
+
+## 🔮 AI Agent 魔法系统提示词 (Magic System Prompt)
+
+```markdown
+您是正在 CPA2API 仓库中执行任务的精英 AI 开发者/运维智能体。请无条件激活并遵循以下操作协议：
+
+1. **吸纳项目上下文**：在执行任何代码变更或文件创建前，必须优先读取并吸纳 Readme 目录下的核心知识库：
+   - 00_DOCUMENTATION_RULES.md (项目最高宪法与操作规范)
+   - 01_PROJECT_META.md (项目元数据与核心理念)
+   - 02_TECHNICAL_ARCHITECTURE.md (技术架构与底层机制)
+   - 03_UPSTREAM_SYNC_AND_MAINTENANCE.md (双源同步与合并指南)
+   - 04_CHANGELOG_AND_ROADMAP.md (变更日志与未来演进)
+   以及项目内置的 Ops 技能书：skills/cpa2api-skill/SKILL.md
+
+2. **优先使用统一 MCP 与 CLI 运维工具**：
+   - 本项目已在 `mcp/cpa2a.js` 统一封装了完整的高级运维工具（如 `cpa_status`, `cpa_health`, `cpa_config`, `cpa_upgrade` 等）。
+   - 优先通过 MCP 协议或 `cpa-cli` 脚本工具链与底层服务和容器交互，禁止编写冗余的特异性脚本。
+
+3. **CPA 配置绝对保护红线**：
+   - **严禁直接或以任何自动化手段修改 `config.yaml` 配置文件**。
+   - 所有配置变更必须由人类协作者手动执行。AI 仅限提供修改方案并等待确认。
+
+4. **规范输出路径与生命周期归档**：
+   - 任何生成的报告、测试数据等，必须输出到 `/home/skloxo/aho/openclaw/` 规范工作区下，严禁使用 `/tmp/` 目录。
+   - 所有单次迭代的过程文档在开发完成后必须物理移入 `history/` 归档目录，保持根目录纯净。
+```
+
+## 🛠️ 项目内置技能与 MCP 资产 (Monorepo Skills & MCP Assets)
+
+本仓库采用 Monorepo 结构，已将核心运维技能与智能体 MCP 服务器整合入代码树：
+
+*   **Ops 技能书**：[skills/cpa2api-skill/SKILL.md](file:///home/skloxo/aho/openclaw/project/qwen2api/CPA2API/skills/cpa2api-skill/SKILL.md) 包含了超万字的生产部署、认证管理、路由负载、故障排查和性能调优的最佳实践指南。AI 智能体可直接加载该 Markdown 资产并将其吸收为自身技能。
+*   **统一 MCP 服务**：[mcp/cpa2a.js](file:///home/skloxo/aho/openclaw/project/qwen2api/CPA2API/mcp/cpa2a.js) 是基于 Model Context Protocol 实现的 node.js 服务器，向大模型提供健康检查、用量统计、无缝升级等 API 能力。
 
 ---
 
@@ -67,8 +108,8 @@ graph TD
 
 本项目采用清晰的版本控制机制，便于追踪上游变更与本地定制：
 *   **格式**：`v[UpstreamVersion]-[SkloxoPatchVersion]`
-*   **示例**：`v7.1.20-s.1`
-    *   **前缀 `v7.1.20`**：同步并映射上游 [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) 官方发行版。
+*   **示例**：`v7.2.2-s.4`
+    *   **前缀 `v7.2.2`**：同步并映射上游 [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) 官方发行版。
     *   **后缀 `-s.1`**：由 Skloxo 维护的专属定制补丁/优化版本（如 Qwen 自定义 XML 标签绕过、高级流式心跳等特性的演进版本）。
 
 ---
@@ -120,7 +161,7 @@ version: '3.8'
 
 services:
   cli-proxy-api:
-    image: eceasy/cli-proxy-api:v7.1.20-s.1
+    image: eceasy/cli-proxy-api:v7.2.2-s.4
     container_name: cli-proxy-api
     network_mode: host
     volumes:

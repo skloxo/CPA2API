@@ -71,8 +71,29 @@ func (h *OpenAIAPIHandler) Models() []map[string]any {
 // It returns a list of available AI models with their capabilities
 // and specifications in OpenAI-compatible format.
 func (h *OpenAIAPIHandler) OpenAIModels(c *gin.Context) {
+	var excludedModels map[string][]string
+	if val, ok := c.Get("oauthExcludedModels"); ok {
+		excludedModels, _ = val.(map[string][]string)
+	}
+
 	if _, ok := c.Request.URL.Query()["client_version"]; ok {
-		c.JSON(http.StatusOK, h.codexClientModelsResponse())
+		rawResponse := h.codexClientModelsResponse()
+		if rawModels, ok := rawResponse["models"].([]map[string]any); ok && len(excludedModels) > 0 {
+			filtered := make([]map[string]any, 0, len(rawModels))
+			for _, m := range rawModels {
+				id, _ := m["slug"].(string)
+				if id == "" {
+					id, _ = m["id"].(string)
+				}
+				ownedBy, _ := m["owned_by"].(string)
+				if isModelExcluded(id, ownedBy, excludedModels) {
+					continue
+				}
+				filtered = append(filtered, m)
+			}
+			rawResponse["models"] = filtered
+		}
+		c.JSON(http.StatusOK, rawResponse)
 		return
 	}
 
@@ -80,10 +101,16 @@ func (h *OpenAIAPIHandler) OpenAIModels(c *gin.Context) {
 	allModels := h.Models()
 
 	// Filter to only include the 4 required fields: id, object, created, owned_by
-	filteredModels := make([]map[string]any, len(allModels))
-	for i, model := range allModels {
+	filteredModels := make([]map[string]any, 0, len(allModels))
+	for _, model := range allModels {
+		modelID, _ := model["id"].(string)
+		ownedBy, _ := model["owned_by"].(string)
+		if isModelExcluded(modelID, ownedBy, excludedModels) {
+			continue
+		}
+
 		filteredModel := map[string]any{
-			"id":     model["id"],
+			"id":     modelID,
 			"object": model["object"],
 		}
 
@@ -93,11 +120,11 @@ func (h *OpenAIAPIHandler) OpenAIModels(c *gin.Context) {
 		}
 
 		// Add owned_by field if it exists
-		if ownedBy, exists := model["owned_by"]; exists {
+		if ownedBy != "" {
 			filteredModel["owned_by"] = ownedBy
 		}
 
-		filteredModels[i] = filteredModel
+		filteredModels = append(filteredModels, filteredModel)
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -1221,4 +1248,108 @@ func sendNonStreamResponse(c *gin.Context, id string, model string, markdownLink
 			"total_tokens":      20,
 		},
 	})
+}
+
+func matchWildcard(pattern, value string) bool {
+	if pattern == "" {
+		return false
+	}
+	if !strings.Contains(pattern, "*") {
+		return pattern == value
+	}
+	parts := strings.Split(pattern, "*")
+	if prefix := parts[0]; prefix != "" {
+		if !strings.HasPrefix(value, prefix) {
+			return false
+		}
+		value = value[len(prefix):]
+	}
+	if suffix := parts[len(parts)-1]; suffix != "" {
+		if !strings.HasSuffix(value, suffix) {
+			return false
+		}
+		value = value[:len(value)-len(suffix)]
+	}
+	for i := 1; i < len(parts)-1; i++ {
+		part := parts[i]
+		if part == "" {
+			continue
+		}
+		idx := strings.Index(value, part)
+		if idx < 0 {
+			return false
+		}
+		value = value[idx+len(part):]
+	}
+	return true
+}
+
+func getModelProvider(modelID string) string {
+	id := strings.ToLower(strings.TrimSpace(modelID))
+	baseID := id
+	if idx := strings.Index(id, "/"); idx >= 0 {
+		baseID = id[idx+1:]
+	}
+
+	if strings.HasPrefix(baseID, "gpt-") || strings.HasPrefix(baseID, "dall-e") || strings.HasPrefix(baseID, "text-") || strings.HasPrefix(baseID, "o1-") || strings.HasPrefix(baseID, "o3-") {
+		return "codex"
+	}
+	if strings.HasPrefix(baseID, "claude-") {
+		return "claude"
+	}
+	if strings.HasPrefix(baseID, "gemini-") {
+		return "gemini"
+	}
+	if strings.HasPrefix(baseID, "grok-") {
+		return "xai"
+	}
+	if strings.HasPrefix(baseID, "qwen") {
+		return "qwen"
+	}
+	if strings.Contains(baseID, "moonshot") || strings.HasPrefix(baseID, "kimi") {
+		return "kimi"
+	}
+	return "codex"
+}
+
+func isModelExcluded(modelID string, ownedBy string, excludedModels map[string][]string) bool {
+	if registry.IsModelExcludedFunc != nil && registry.IsModelExcludedFunc(modelID, ownedBy) {
+		return true
+	}
+	if len(excludedModels) == 0 {
+		return false
+	}
+	modelID = strings.ToLower(strings.TrimSpace(modelID))
+	baseID := modelID
+	if idx := strings.Index(modelID, "/"); idx >= 0 {
+		baseID = modelID[idx+1:]
+	}
+
+	providers := []string{
+		strings.ToLower(strings.TrimSpace(ownedBy)),
+		getModelProvider(modelID),
+	}
+	if idx := strings.Index(modelID, "/"); idx >= 0 {
+		prefixProvider := strings.ToLower(strings.TrimSpace(modelID[:idx]))
+		if prefixProvider != "" {
+			providers = append(providers, prefixProvider)
+		}
+	}
+
+	for _, provider := range providers {
+		if provider == "" {
+			continue
+		}
+		excluded, ok := excludedModels[provider]
+		if !ok || len(excluded) == 0 {
+			continue
+		}
+		for _, pattern := range excluded {
+			trimmedPattern := strings.ToLower(strings.TrimSpace(pattern))
+			if trimmedPattern != "" && (matchWildcard(trimmedPattern, modelID) || matchWildcard(trimmedPattern, baseID)) {
+				return true
+			}
+		}
+	}
+	return false
 }

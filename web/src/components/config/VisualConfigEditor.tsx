@@ -53,7 +53,8 @@ type VisualSectionId =
   | 'network'
   | 'quota'
   | 'streaming'
-  | 'payload';
+  | 'payload'
+  | 'manager';
 
 type VisualSection = {
   id: VisualSectionId;
@@ -69,6 +70,29 @@ interface VisualConfigEditorProps {
   hasPayloadValidationErrors?: boolean;
   disabled?: boolean;
   onChange: (values: Partial<VisualConfigValues>) => void;
+  // CPA-Manager config props
+  managerServiceBase: string;
+  panelHostedByUsageService: boolean | null;
+  managerRequestMonitoringEnabled: boolean;
+  managerCollectorMode: string;
+  managerPollIntervalMs: string;
+  managerBatchSize: string;
+  managerQueryLimit: string;
+  managerConfigSourceLabel: string;
+  managerCPAUsage: any;
+  managerRetentionSeconds: number;
+  managerCollectorModeOptions: { value: string; label: string }[];
+  managerLoading: boolean;
+  managerError: string;
+  detectedPanelBase: string;
+  onManagerConfigChange: (patch: Partial<{
+    serviceBase: string;
+    requestMonitoringEnabled: boolean;
+    collectorMode: string;
+    pollIntervalMs: string;
+    batchSize: string;
+    queryLimit: string;
+  }>) => void;
 }
 
 function getValidationMessage(
@@ -176,6 +200,21 @@ export function VisualConfigEditor({
   hasPayloadValidationErrors = false,
   disabled = false,
   onChange,
+  managerServiceBase,
+  panelHostedByUsageService,
+  managerRequestMonitoringEnabled,
+  managerCollectorMode,
+  managerPollIntervalMs,
+  managerBatchSize,
+  managerQueryLimit,
+  managerConfigSourceLabel,
+  managerCPAUsage,
+  managerRetentionSeconds,
+  managerCollectorModeOptions,
+  managerLoading,
+  managerError,
+  detectedPanelBase,
+  onManagerConfigChange,
 }: VisualConfigEditorProps) {
   const { t } = useTranslation();
   const pageTransitionLayer = usePageTransitionLayer();
@@ -359,6 +398,13 @@ export function VisualConfigEditor({
         description: t('config_management.visual.sections.payload.description'),
         icon: IconCode,
         errorCount: hasPayloadValidationErrors ? 1 : 0,
+      },
+      {
+        id: 'manager',
+        title: t('config_management.manager.title'),
+        description: t('config_management.manager.boundary_hint'),
+        icon: IconSettings,
+        errorCount: 0,
       },
     ],
     [countErrors, hasPayloadValidationErrors, t]
@@ -684,22 +730,7 @@ export function VisualConfigEditor({
                 disabled={disabled}
                 onChange={(rmAllowRemote) => onChange({ rmAllowRemote })}
               />
-              <ToggleRow
-                title={t('config_management.visual.sections.remote.disable_panel')}
-                description={t('config_management.visual.sections.remote.disable_panel_desc')}
-                checked={values.rmDisableControlPanel}
-                disabled={disabled}
-                onChange={(rmDisableControlPanel) => onChange({ rmDisableControlPanel })}
-              />
-              <ToggleRow
-                title={t('config_management.visual.sections.remote.disable_auto_update_panel')}
-                description={t(
-                  'config_management.visual.sections.remote.disable_auto_update_panel_desc'
-                )}
-                checked={values.rmDisableAutoUpdatePanel}
-                disabled={disabled}
-                onChange={(rmDisableAutoUpdatePanel) => onChange({ rmDisableAutoUpdatePanel })}
-              />
+
               <SectionGrid>
                 <Input
                   label={t('config_management.visual.sections.remote.secret_key')}
@@ -707,13 +738,6 @@ export function VisualConfigEditor({
                   placeholder={t('config_management.visual.sections.remote.secret_key_placeholder')}
                   value={values.rmSecretKey}
                   onChange={(e) => onChange({ rmSecretKey: e.target.value })}
-                  disabled={disabled}
-                />
-                <Input
-                  label={t('config_management.visual.sections.remote.panel_repo')}
-                  placeholder="https://github.com/router-for-me/Cli-Proxy-API-Management-Center"
-                  value={values.rmPanelRepo}
-                  onChange={(e) => onChange({ rmPanelRepo: e.target.value })}
                   disabled={disabled}
                 />
               </SectionGrid>
@@ -1309,6 +1333,171 @@ export function VisualConfigEditor({
                   onChange={handlePayloadFilterRulesChange}
                 />
               </SectionSubsection>
+            </SectionStack>
+          </ConfigSection>
+
+          <ConfigSection
+            id="manager"
+            ref={(node) => {
+              sectionRefs.current.manager = node;
+            }}
+            icon={<IconSettings size={16} />}
+            title={t('config_management.manager.title')}
+            description={t('config_management.manager.boundary_hint')}
+          >
+            <SectionStack>
+              {managerError && (
+                <div className="error-box">{managerError}</div>
+              )}
+              
+              <SectionSubsection
+                title={t('config_management.manager.runtime_title')}
+                description={panelHostedByUsageService === true
+                  ? t('config_management.manager.runtime_embedded_hint')
+                  : t('config_management.manager.runtime_external_hint')}
+              >
+                {panelHostedByUsageService === true ? (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '16px', padding: '12px', background: 'var(--bg-card-secondary, rgba(0,0,0,0.02))', borderRadius: '6px' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <span style={{ fontSize: '12px', opacity: 0.7 }}>{t('config_management.manager.service_base')}</span>
+                      <strong>{detectedPanelBase}</strong>
+                    </div>
+                  </div>
+                ) : (
+                  <Input
+                    label={t('config_management.manager.external_service_base')}
+                    placeholder="http://127.0.0.1:18317"
+                    value={managerServiceBase}
+                    onChange={(event) => {
+                      onManagerConfigChange({ serviceBase: event.target.value });
+                    }}
+                    disabled={disabled || managerLoading}
+                    hint={t('config_management.manager.external_service_hint')}
+                  />
+                )}
+              </SectionSubsection>
+
+              <Divider />
+
+              <ToggleRow
+                title={t('config_management.manager.request_monitoring_enabled')}
+                description={t('config_management.manager.request_monitoring_hint')}
+                checked={managerRequestMonitoringEnabled}
+                disabled={disabled || managerLoading || !managerServiceBase}
+                onChange={(value) => {
+                  onManagerConfigChange({ requestMonitoringEnabled: value });
+                }}
+              />
+
+              {!managerServiceBase ? (
+                <div style={{ color: 'var(--text-danger)', fontSize: '13px', marginTop: '-8px' }}>
+                  {t('config_management.manager.request_monitoring_dependency')}
+                </div>
+              ) : null}
+
+              <div style={{ fontSize: '13px', opacity: 0.8, marginTop: '-8px' }}>
+                {t('config_management.manager.request_monitoring_queue_note')}
+              </div>
+
+              <SectionGrid>
+                <FieldShell
+                  label={t('config_management.manager.collector_mode')}
+                >
+                  <Select
+                    value={managerCollectorMode}
+                    options={managerCollectorModeOptions}
+                    onChange={(value) => {
+                      onManagerConfigChange({ collectorMode: value });
+                    }}
+                    disabled={
+                      disabled ||
+                      managerLoading ||
+                      !managerRequestMonitoringEnabled ||
+                      !managerServiceBase
+                    }
+                    ariaLabel={t('config_management.manager.collector_mode')}
+                  />
+                </FieldShell>
+
+                <Input
+                  label={t('config_management.manager.poll_interval_ms')}
+                  type="number"
+                  min="1"
+                  placeholder="500"
+                  value={managerPollIntervalMs}
+                  onChange={(event) => {
+                    onManagerConfigChange({ pollIntervalMs: event.target.value });
+                  }}
+                  disabled={
+                    disabled ||
+                    managerLoading ||
+                    !managerRequestMonitoringEnabled ||
+                    !managerServiceBase
+                  }
+                  hint={t('config_management.manager.poll_interval_hint', {
+                    seconds: managerRetentionSeconds,
+                  })}
+                />
+
+                <Input
+                  label={t('config_management.manager.batch_size')}
+                  type="number"
+                  min="1"
+                  placeholder="100"
+                  value={managerBatchSize}
+                  onChange={(event) => {
+                    onManagerConfigChange({ batchSize: event.target.value });
+                  }}
+                  disabled={
+                    disabled ||
+                    managerLoading ||
+                    !managerRequestMonitoringEnabled ||
+                    !managerServiceBase
+                  }
+                />
+
+                <Input
+                  label={t('config_management.manager.query_limit')}
+                  type="number"
+                  min="1"
+                  placeholder="50000"
+                  value={managerQueryLimit}
+                  onChange={(event) => {
+                    onManagerConfigChange({ queryLimit: event.target.value });
+                  }}
+                  disabled={
+                    disabled ||
+                    managerLoading ||
+                    !managerRequestMonitoringEnabled ||
+                    !managerServiceBase
+                  }
+                />
+              </SectionGrid>
+
+              <Divider />
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '16px', padding: '12px', background: 'var(--bg-card-secondary, rgba(0,0,0,0.02))', borderRadius: '6px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <span style={{ fontSize: '12px', opacity: 0.7 }}>{t('config_management.manager.config_source')}</span>
+                  <strong>{managerConfigSourceLabel}</strong>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <span style={{ fontSize: '12px', opacity: 0.7 }}>{t('config_management.manager.cpa_usage_enabled')}</span>
+                  <strong>
+                    {managerCPAUsage?.usageStatisticsEnabled
+                      ? t('common.enabled')
+                      : t('common.disabled')}
+                  </strong>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <span style={{ fontSize: '12px', opacity: 0.7 }}>{t('config_management.manager.cpa_retention')}</span>
+                  <strong>
+                    {t('config_management.manager.cpa_retention_value', {
+                      seconds: managerRetentionSeconds,
+                    })}
+                  </strong>
+                </div>
+              </div>
             </SectionStack>
           </ConfigSection>
         </div>

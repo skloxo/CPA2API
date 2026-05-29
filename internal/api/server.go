@@ -34,6 +34,10 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/logging"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/managementasset"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/redisqueue"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/usageservice/collector"
+	usageConfig "github.com/router-for-me/CLIProxyAPI/v7/internal/usageservice/config"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/usageservice/httpapi"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/usageservice/store"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/util"
 	sdkaccess "github.com/router-for-me/CLIProxyAPI/v7/sdk/access"
 	"github.com/router-for-me/CLIProxyAPI/v7/sdk/api/handlers"
@@ -199,6 +203,12 @@ type Server struct {
 	keepAliveOnTimeout func()
 	keepAliveHeartbeat chan struct{}
 	keepAliveStop      chan struct{}
+
+	// usage service integration
+	usageCfg       usageConfig.Config
+	usageStore     *store.Store
+	usageCollector *collector.Manager
+	usageServer    *httpapi.Server
 }
 
 // NewServer creates and initializes a new API server instance.
@@ -262,6 +272,44 @@ func NewServer(cfg *config.Config, authManager *auth.Manager, accessManager *sdk
 	envAdminPassword = strings.TrimSpace(envAdminPassword)
 	envManagementSecret := envAdminPasswordSet && envAdminPassword != ""
 
+	// Initialize usage service config, store, and collector natively
+	uCfg, errUCfg := usageConfig.Load()
+	if errUCfg != nil {
+		log.Errorf("Failed to load usage-service config: %v", errUCfg)
+	}
+	if uCfg.DBPath == "" || uCfg.DBPath == "data/usage.sqlite" || strings.HasSuffix(filepath.ToSlash(uCfg.DBPath), "data/usage.sqlite") {
+		if cfg.AuthDir != "" {
+			uCfg.DBPath = filepath.Join(cfg.AuthDir, "usage.sqlite")
+		} else {
+			uCfg.DBPath = "data/usage.sqlite"
+		}
+	}
+	// Auto-configure CPA connection settings for embedded mode to bypass initialization wizard
+	if uCfg.CPAUpstreamURL == "" {
+		localPort := 9317
+		if cfg.Port > 0 {
+			localPort = cfg.Port
+		}
+		uCfg.CPAUpstreamURL = fmt.Sprintf("http://127.0.0.1:%d", localPort)
+	}
+	if uCfg.ManagementKey == "" {
+		if envManagementSecret {
+			uCfg.ManagementKey = envAdminPassword
+		} else if cfg.RemoteManagement.SecretKey != "" && !strings.HasPrefix(cfg.RemoteManagement.SecretKey, "$2a$") && !strings.HasPrefix(cfg.RemoteManagement.SecretKey, "$2b$") && !strings.HasPrefix(cfg.RemoteManagement.SecretKey, "$2y$") {
+			uCfg.ManagementKey = cfg.RemoteManagement.SecretKey
+		}
+	}
+	uStore, errUStore := store.Open(uCfg.DBPath)
+	if errUStore != nil {
+		log.Errorf("Failed to open usage-service database: %v", errUStore)
+	}
+	var uCollector *collector.Manager
+	var uServer *httpapi.Server
+	if uStore != nil {
+		uCollector = collector.NewManager(uCfg, uStore)
+		uServer = httpapi.New(uCfg, uStore, uCollector)
+	}
+
 	// Create server instance
 	s := &Server{
 		engine:              engine,
@@ -274,6 +322,10 @@ func NewServer(cfg *config.Config, authManager *auth.Manager, accessManager *sdk
 		currentPath:         wd,
 		envManagementSecret: envManagementSecret,
 		wsRoutes:            make(map[string]struct{}),
+		usageCfg:            uCfg,
+		usageStore:          uStore,
+		usageCollector:      uCollector,
+		usageServer:         uServer,
 	}
 	s.wsAuthEnabled.Store(cfg.WebsocketAuth)
 	// Save initial YAML snapshot
@@ -328,7 +380,7 @@ func NewServer(cfg *config.Config, authManager *auth.Manager, accessManager *sdk
 	// when a local management password is provided (e.g. TUI mode),
 	// or when no key is set yet but control panel is enabled (to allow first-run password setup).
 	hasManagementSecret := cfg.RemoteManagement.SecretKey != "" || envManagementSecret || s.localPassword != ""
-	enableManagement := hasManagementSecret || (cfg != nil && !cfg.RemoteManagement.DisableControlPanel)
+	enableManagement := hasManagementSecret || (cfg != nil)
 	s.managementRoutesEnabled.Store(enableManagement)
 	redisqueue.SetEnabled(enableManagement || (cfg != nil && cfg.Home.Enabled))
 	if enableManagement {
@@ -383,6 +435,19 @@ func (s *Server) setupRoutes() {
 	}
 	s.engine.GET("/healthz", healthzHandler)
 	s.engine.HEAD("/healthz", healthzHandler)
+
+	// Mount native usage-service routes
+	if s.usageServer != nil {
+		uHandler := s.usageServer.Handler()
+		s.engine.Any("/usage-service/*path", gin.WrapH(uHandler))
+		s.engine.Any("/status", gin.WrapH(uHandler))
+		s.engine.Any("/v0/management/usage", gin.WrapH(uHandler))
+		s.engine.Any("/v0/management/usage/*path", gin.WrapH(uHandler))
+		s.engine.Any("/v0/management/model-prices", gin.WrapH(uHandler))
+		s.engine.Any("/v0/management/model-prices/*path", gin.WrapH(uHandler))
+		s.engine.Any("/v0/management/api-key-aliases", gin.WrapH(uHandler))
+		s.engine.Any("/v0/management/api-key-aliases/*path", gin.WrapH(uHandler))
+	}
 
 	s.engine.GET("/management.html", s.serveManagementControlPanel)
 	openaiHandlers := openai.NewOpenAIAPIHandler(s.handlers)
@@ -749,7 +814,7 @@ func (s *Server) managementAvailabilityMiddleware() gin.HandlerFunc {
 
 func (s *Server) serveManagementControlPanel(c *gin.Context) {
 	cfg := s.cfg
-	if cfg == nil || cfg.Home.Enabled || cfg.RemoteManagement.DisableControlPanel {
+	if cfg == nil || cfg.Home.Enabled {
 		c.AbortWithStatus(http.StatusNotFound)
 		return
 	}
@@ -861,6 +926,9 @@ func (s *Server) watchKeepAlive() {
 // otherwise it routes to OpenAI handler.
 func (s *Server) unifiedModelsHandler(openaiHandler *openai.OpenAIAPIHandler, claudeHandler *claude.ClaudeCodeAPIHandler) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if s != nil && s.cfg != nil {
+			c.Set("oauthExcludedModels", s.cfg.OAuthExcludedModels)
+		}
 		if _, ok := c.Request.URL.Query()["client_version"]; ok {
 			if s != nil && s.cfg != nil && s.cfg.Home.Enabled {
 				s.handleHomeCodexClientModels(c)
@@ -918,6 +986,9 @@ func (s *Server) handleHomeCodexClientModels(c *gin.Context) {
 
 func (s *Server) geminiModelsHandler(geminiHandler *gemini.GeminiAPIHandler) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if s != nil && s.cfg != nil {
+			c.Set("oauthExcludedModels", s.cfg.OAuthExcludedModels)
+		}
 		if s != nil && s.cfg != nil && s.cfg.Home.Enabled {
 			s.handleHomeGeminiModels(c)
 			return
@@ -929,6 +1000,9 @@ func (s *Server) geminiModelsHandler(geminiHandler *gemini.GeminiAPIHandler) gin
 
 func (s *Server) geminiGetHandler(geminiHandler *gemini.GeminiAPIHandler) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if s != nil && s.cfg != nil {
+			c.Set("oauthExcludedModels", s.cfg.OAuthExcludedModels)
+		}
 		if s != nil && s.cfg != nil && s.cfg.Home.Enabled {
 			s.handleHomeGeminiModel(c)
 			return
@@ -1080,7 +1154,126 @@ func (s *Server) loadHomeModelEntries(c *gin.Context) ([]homeModelEntry, bool) {
 		return nil, false
 	}
 
+	// Filter home models based on OAuthExcludedModels
+	if s.cfg != nil && len(s.cfg.OAuthExcludedModels) > 0 {
+		filtered := make([]homeModelEntry, 0, len(entries))
+		for _, entry := range entries {
+			provider := ""
+			if idx := strings.Index(entry.id, "/"); idx >= 0 {
+				provider = strings.ToLower(strings.TrimSpace(entry.id[:idx]))
+			}
+			if provider == "" {
+				provider = strings.ToLower(getModelProvider(entry.id))
+			}
+
+			// 1. OAuthExcludedModels filter
+			excluded := s.cfg.OAuthExcludedModels[provider]
+			if len(excluded) == 0 && provider != strings.ToLower(getModelProvider(entry.id)) {
+				excluded = s.cfg.OAuthExcludedModels[strings.ToLower(getModelProvider(entry.id))]
+			}
+
+			blocked := false
+			if len(excluded) > 0 {
+				modelID := strings.ToLower(strings.TrimSpace(entry.id))
+				baseID := modelID
+				if idx := strings.Index(modelID, "/"); idx >= 0 {
+					baseID = modelID[idx+1:]
+				}
+				for _, pattern := range excluded {
+					trimmedPattern := strings.ToLower(strings.TrimSpace(pattern))
+					if trimmedPattern != "" && (matchWildcard(trimmedPattern, modelID) || matchWildcard(trimmedPattern, baseID)) {
+						blocked = true
+						break
+					}
+				}
+			}
+			if blocked {
+				continue
+			}
+
+			filtered = append(filtered, entry)
+		}
+		entries = filtered
+	}
+
 	return entries, true
+}
+
+func getModelProvider(modelID string) string {
+	id := strings.ToLower(strings.TrimSpace(modelID))
+	baseID := id
+	if idx := strings.Index(id, "/"); idx >= 0 {
+		baseID = id[idx+1:]
+	}
+
+	// Dynamic mapping based on prefix/substring
+	if strings.HasPrefix(baseID, "gpt-") || strings.HasPrefix(baseID, "dall-e") || strings.HasPrefix(baseID, "text-") || strings.HasPrefix(baseID, "o1-") || strings.HasPrefix(baseID, "o3-") {
+		return "codex"
+	}
+	if strings.HasPrefix(baseID, "claude-") {
+		return "claude"
+	}
+	if strings.HasPrefix(baseID, "gemini-") {
+		return "gemini"
+	}
+	if strings.HasPrefix(baseID, "grok-") {
+		return "xai"
+	}
+	if strings.HasPrefix(baseID, "qwen") {
+		return "qwen"
+	}
+	if strings.Contains(baseID, "moonshot") || strings.HasPrefix(baseID, "kimi") {
+		return "kimi"
+	}
+	if strings.HasPrefix(baseID, "antigravity") {
+		return "antigravity"
+	}
+
+	return "codex" // default fallback
+}
+
+// matchWildcard performs case-insensitive wildcard matching where '*' matches any substring.
+func matchWildcard(pattern, value string) bool {
+	if pattern == "" {
+		return false
+	}
+
+	// Fast path for exact match (no wildcard present).
+	if !strings.Contains(pattern, "*") {
+		return pattern == value
+	}
+
+	parts := strings.Split(pattern, "*")
+	// Handle prefix.
+	if prefix := parts[0]; prefix != "" {
+		if !strings.HasPrefix(value, prefix) {
+			return false
+		}
+		value = value[len(prefix):]
+	}
+
+	// Handle suffix.
+	if suffix := parts[len(parts)-1]; suffix != "" {
+		if !strings.HasSuffix(value, suffix) {
+			return false
+		}
+		value = value[:len(value)-len(suffix)]
+	}
+
+	// Handle middle segments in order.
+	for i := 1; i < len(parts)-1; i++ {
+		segment := parts[i]
+		if segment == "" {
+			continue
+		}
+		idx := strings.Index(value, segment)
+		if idx < 0 {
+			return false
+		}
+		value = value[idx+len(segment):]
+	}
+
+	return true
 }
 
 func formatHomeGeminiModels(entries []homeModelEntry) []map[string]any {
@@ -1244,6 +1437,69 @@ func (s *Server) Start() error {
 	httpErrCh := make(chan error, 1)
 	acceptErrCh := make(chan error, 1)
 
+	// Start native usage-service collector
+	if s.usageCollector != nil {
+		go func() {
+			ctx := context.Background()
+			db := s.usageStore
+			cfg := s.usageCfg
+			manager := s.usageCollector
+
+			valueOr := func(value string, fallback string) string {
+				if value == "" {
+					return fallback
+				}
+				return value
+			}
+
+			if cfg.CPAUpstreamURL != "" && cfg.ManagementKey != "" {
+				manager.Start(ctx, collector.RuntimeConfig{
+					CPAUpstreamURL: cfg.CPAUpstreamURL,
+					ManagementKey:  cfg.ManagementKey,
+					CollectorMode:  cfg.CollectorMode,
+					Queue:          cfg.Queue,
+					PopSide:        cfg.PopSide,
+					BatchSize:      cfg.BatchSize,
+					PollInterval:   cfg.PollInterval,
+					TLSSkipVerify:  cfg.TLSSkipVerify,
+				})
+			} else if managerCfg, ok, err := db.LoadManagerConfig(ctx); err == nil && ok &&
+				managerCfg.CPAConnection.CPABaseURL != "" && managerCfg.CPAConnection.ManagementKey != "" {
+				if managerCfg.Collector.Enabled == nil || *managerCfg.Collector.Enabled {
+					pollInterval := time.Duration(managerCfg.Collector.PollIntervalMS) * time.Millisecond
+					if pollInterval <= 0 {
+						pollInterval = cfg.PollInterval
+					}
+					batchSize := managerCfg.Collector.BatchSize
+					if batchSize <= 0 {
+						batchSize = cfg.BatchSize
+					}
+					manager.Start(ctx, collector.RuntimeConfig{
+						CPAUpstreamURL: managerCfg.CPAConnection.CPABaseURL,
+						ManagementKey:  managerCfg.CPAConnection.ManagementKey,
+						CollectorMode:  valueOr(managerCfg.Collector.CollectorMode, cfg.CollectorMode),
+						Queue:          valueOr(managerCfg.Collector.Queue, cfg.Queue),
+						PopSide:        valueOr(managerCfg.Collector.PopSide, cfg.PopSide),
+						BatchSize:      batchSize,
+						PollInterval:   pollInterval,
+						TLSSkipVerify:  managerCfg.Collector.TLSSkipVerify,
+					})
+				}
+			} else if setup, ok, err := db.LoadSetup(ctx); err == nil && ok {
+				manager.Start(ctx, collector.RuntimeConfig{
+					CPAUpstreamURL: setup.CPAUpstreamURL,
+					ManagementKey:  setup.ManagementKey,
+					CollectorMode:  cfg.CollectorMode,
+					Queue:          setup.Queue,
+					PopSide:        setup.PopSide,
+					BatchSize:      cfg.BatchSize,
+					PollInterval:   cfg.PollInterval,
+					TLSSkipVerify:  cfg.TLSSkipVerify,
+				})
+			}
+		}()
+	}
+
 	go func() {
 		httpErrCh <- s.server.Serve(httpListener)
 	}()
@@ -1303,6 +1559,13 @@ func (s *Server) Start() error {
 //   - error: An error if the server fails to stop
 func (s *Server) Stop(ctx context.Context) error {
 	log.Debug("Stopping API server...")
+
+	if s.usageCollector != nil {
+		s.usageCollector.Stop()
+	}
+	if s.usageStore != nil {
+		_ = s.usageStore.Close()
+	}
 
 	if s.keepAliveEnabled {
 		select {
@@ -1430,7 +1693,7 @@ func (s *Server) UpdateClients(cfg *config.Config) {
 	}
 
 	newSecretEmpty := cfg.RemoteManagement.SecretKey == ""
-	enableManagement := !newSecretEmpty || (cfg != nil && !cfg.RemoteManagement.DisableControlPanel)
+	enableManagement := !newSecretEmpty || (cfg != nil)
 	if s.envManagementSecret {
 		s.registerManagementRoutes()
 		if s.managementRoutesEnabled.CompareAndSwap(false, true) {

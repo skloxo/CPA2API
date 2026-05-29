@@ -47,18 +47,34 @@ type qwenModelEntry struct {
 
 // QwenModelDiscovery manages dynamic model discovery from Qwen's API.
 type QwenModelDiscovery struct {
-	cfg         *config.Config
-	mu          sync.Mutex
-	cancel      context.CancelFunc
-	token       string
-	cookie      string
-	refreshOnce sync.Once
-	lastModels  []*registry.ModelInfo
+	cfg        *config.Config
+	mu         sync.Mutex
+	cancel     context.CancelFunc
+	token      string
+	cookie     string
+	running    bool
+	lastModels []*registry.ModelInfo
+}
+
+var (
+	qwenModelDiscoveryInstance *QwenModelDiscovery
+	qwenModelDiscoveryOnce     sync.Once
+)
+
+// GetQwenModelDiscovery returns the singleton QwenModelDiscovery instance and updates its cfg pointer.
+func GetQwenModelDiscovery(cfg *config.Config) *QwenModelDiscovery {
+	qwenModelDiscoveryOnce.Do(func() {
+		qwenModelDiscoveryInstance = &QwenModelDiscovery{}
+	})
+	qwenModelDiscoveryInstance.mu.Lock()
+	qwenModelDiscoveryInstance.cfg = cfg
+	qwenModelDiscoveryInstance.mu.Unlock()
+	return qwenModelDiscoveryInstance
 }
 
 // NewQwenModelDiscovery creates a new model discovery instance.
 func NewQwenModelDiscovery(cfg *config.Config) *QwenModelDiscovery {
-	return &QwenModelDiscovery{cfg: cfg}
+	return GetQwenModelDiscovery(cfg)
 }
 
 // SetCredentials sets the authentication token and cookie for API requests.
@@ -80,34 +96,52 @@ func (d *QwenModelDiscovery) SetCredentials(token, cookie string) {
 // Start begins the periodic model discovery loop. Safe to call multiple times;
 // only the first call takes effect.
 func (d *QwenModelDiscovery) Start(ctx context.Context) {
-	d.refreshOnce.Do(func() {
-		ctx, cancel := context.WithCancel(ctx)
-		d.cancel = cancel
+	d.mu.Lock()
+	if d.running {
+		d.mu.Unlock()
+		return
+	}
+	d.running = true
+	ctx, cancel := context.WithCancel(ctx)
+	d.cancel = cancel
+	d.mu.Unlock()
 
-		// Initial fetch
-		d.refreshModels(ctx)
+	// Initial fetch
+	d.refreshModels(ctx)
 
-		// Periodic refresh
-		go func() {
-			ticker := time.NewTicker(qwenModelsRefreshInterval)
-			defer ticker.Stop()
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				case <-ticker.C:
-					d.refreshModels(ctx)
-				}
+	// Periodic refresh
+	go func() {
+		ticker := time.NewTicker(qwenModelsRefreshInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				d.refreshModels(ctx)
 			}
-		}()
-	})
+		}
+	}()
 }
 
 // Stop stops the periodic refresh.
 func (d *QwenModelDiscovery) Stop() {
+	d.mu.Lock()
 	if d.cancel != nil {
 		d.cancel()
+		d.cancel = nil
 	}
+	d.running = false
+	d.mu.Unlock()
+}
+
+// ClearCredentials clears all active token and cookie configurations.
+func (d *QwenModelDiscovery) ClearCredentials() {
+	d.mu.Lock()
+	d.token = ""
+	d.cookie = ""
+	d.lastModels = nil
+	d.mu.Unlock()
 }
 
 // GetDiscoveredModels returns the last successfully discovered models.
@@ -127,6 +161,7 @@ func (d *QwenModelDiscovery) refreshModels(ctx context.Context) {
 	d.mu.Lock()
 	token := d.token
 	cookie := d.cookie
+	cfg := d.cfg
 	d.mu.Unlock()
 
 	models, err := d.fetchModels(ctx, token, cookie)
@@ -141,6 +176,34 @@ func (d *QwenModelDiscovery) refreshModels(ctx context.Context) {
 		return
 	}
 
+	// Register completely raw, unfiltered models with the registry for `/model-definitions/qwen`
+	registry.RegisterDiscoveredModels("qwen", models)
+
+	models = applyQwenModelAlias(cfg, models)
+
+	// Filter out excluded Qwen models based on OAuthExcludedModels
+	if cfg != nil && len(cfg.OAuthExcludedModels) > 0 {
+		excluded := cfg.OAuthExcludedModels["qwen"]
+		if len(excluded) > 0 {
+			filtered := make([]*registry.ModelInfo, 0, len(models))
+			for _, m := range models {
+				modelID := strings.ToLower(strings.TrimSpace(m.ID))
+				blocked := false
+				for _, pattern := range excluded {
+					trimmedPattern := strings.ToLower(strings.TrimSpace(pattern))
+					if trimmedPattern != "" && matchWildcard(trimmedPattern, modelID) {
+						blocked = true
+						break
+					}
+				}
+				if !blocked {
+					filtered = append(filtered, m)
+				}
+			}
+			models = filtered
+		}
+	}
+
 	d.mu.Lock()
 	d.lastModels = models
 	d.mu.Unlock()
@@ -148,6 +211,110 @@ func (d *QwenModelDiscovery) refreshModels(ctx context.Context) {
 	// Register with global registry
 	registry.GetGlobalRegistry().RegisterClient(qwenModelsClientID, "qwen", models)
 	log.Infof("qwen model discovery: registered %d models", len(models))
+}
+
+// applyQwenModelAlias filters or renames Qwen models using OAuthModelAlias.
+func applyQwenModelAlias(cfg *config.Config, models []*registry.ModelInfo) []*registry.ModelInfo {
+	if cfg == nil || len(models) == 0 {
+		return models
+	}
+	if len(cfg.OAuthModelAlias) == 0 {
+		return models
+	}
+	aliases := cfg.OAuthModelAlias["qwen"]
+	if len(aliases) == 0 {
+		return models
+	}
+
+	type aliasEntry struct {
+		alias string
+		fork  bool
+	}
+
+	forward := make(map[string][]aliasEntry, len(aliases))
+	for i := range aliases {
+		name := strings.TrimSpace(aliases[i].Name)
+		alias := strings.TrimSpace(aliases[i].Alias)
+		if name == "" || alias == "" {
+			continue
+		}
+		if strings.EqualFold(name, alias) {
+			continue
+		}
+		key := strings.ToLower(name)
+		forward[key] = append(forward[key], aliasEntry{alias: alias, fork: aliases[i].Fork})
+	}
+	if len(forward) == 0 {
+		return models
+	}
+
+	out := make([]*registry.ModelInfo, 0, len(models))
+	seen := make(map[string]struct{}, len(models))
+	for _, model := range models {
+		if model == nil {
+			continue
+		}
+		id := strings.TrimSpace(model.ID)
+		if id == "" {
+			continue
+		}
+		key := strings.ToLower(id)
+		entries := forward[key]
+		if len(entries) == 0 {
+			if _, exists := seen[key]; exists {
+				continue
+			}
+			seen[key] = struct{}{}
+			out = append(out, model)
+			continue
+		}
+
+		keepOriginal := false
+		for _, entry := range entries {
+			if entry.fork {
+				keepOriginal = true
+				break
+			}
+		}
+		if keepOriginal {
+			if _, exists := seen[key]; !exists {
+				seen[key] = struct{}{}
+				out = append(out, model)
+			}
+		}
+
+		addedAlias := false
+		for _, entry := range entries {
+			mappedID := strings.TrimSpace(entry.alias)
+			if mappedID == "" {
+				continue
+			}
+			if strings.EqualFold(mappedID, id) {
+				continue
+			}
+			aliasKey := strings.ToLower(mappedID)
+			if _, exists := seen[aliasKey]; exists {
+				continue
+			}
+			seen[aliasKey] = struct{}{}
+			clone := *model
+			clone.ID = mappedID
+			if clone.DisplayName != "" {
+				clone.DisplayName = qwenModelDisplayName(mappedID)
+			}
+			out = append(out, &clone)
+			addedAlias = true
+		}
+
+		if !keepOriginal && !addedAlias {
+			if _, exists := seen[key]; exists {
+				continue
+			}
+			seen[key] = struct{}{}
+			out = append(out, model)
+		}
+	}
+	return out
 }
 
 // fetchModels fetches available models from Qwen's API.
@@ -328,4 +495,38 @@ func appendIfMissing(slice []string, item string) []string {
 		}
 	}
 	return append(slice, item)
+}
+
+func matchWildcard(pattern, value string) bool {
+	if pattern == "" {
+		return false
+	}
+	if !strings.Contains(pattern, "*") {
+		return pattern == value
+	}
+	parts := strings.Split(pattern, "*")
+	if prefix := parts[0]; prefix != "" {
+		if !strings.HasPrefix(value, prefix) {
+			return false
+		}
+		value = value[len(prefix):]
+	}
+	if suffix := parts[len(parts)-1]; suffix != "" {
+		if !strings.HasSuffix(value, suffix) {
+			return false
+		}
+		value = value[:len(value)-len(suffix)]
+	}
+	for i := 1; i < len(parts)-1; i++ {
+		part := parts[i]
+		if part == "" {
+			continue
+		}
+		idx := strings.Index(value, part)
+		if idx < 0 {
+			return false
+		}
+		value = value[idx+len(part):]
+	}
+	return true
 }

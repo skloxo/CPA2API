@@ -52,7 +52,7 @@
 
 .aboutInfoGrid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: $spacing-md;
 
   @media (max-width: 900px) {
@@ -60,16 +60,32 @@
   }
 }
 
+.connectionTile {
+  grid-column: span 1;
+
+  @media (max-width: 900px) {
+    grid-column: span 1;
+  }
+}
+
+.cardDivider {
+  height: 1px;
+  background-color: var(--border-color);
+  margin: $spacing-xl 0;
+  width: 100%;
+}
+
 .infoTile {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  min-height: 120px;
+  justify-content: space-between;
+  height: 120px;
   padding: $spacing-md $spacing-lg;
   border-radius: $radius-lg;
   border: 1px solid var(--border-color);
   background: color-mix(in srgb, var(--bg-secondary) 82%, transparent);
   text-align: left;
+  box-sizing: border-box;
 }
 
 .tapTile {
@@ -98,6 +114,8 @@
   font-size: 13px;
   font-weight: 600;
   color: var(--text-secondary);
+  height: 18px;
+  line-height: 18px;
 }
 
 .tileHeader {
@@ -125,7 +143,40 @@
 .tileSub {
   font-size: 12px;
   color: var(--text-tertiary);
-  line-height: 1.4;
+  height: 18px;
+  line-height: 18px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.updateButton {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  text-decoration: underline;
+  text-align: left;
+  height: 18px;
+  line-height: 18px;
+  font-family: inherit;
+  transition: color 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+
+  &:hover {
+    color: var(--primary-color);
+  }
+
+  &:disabled {
+    color: var(--text-tertiary);
+    cursor: not-allowed;
+    text-decoration: none;
+    opacity: 0.6;
+  }
 }
 
 .section {
@@ -269,82 +320,50 @@
   }
 }
 
-.quickLinks {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: $spacing-md;
+.aboutLinks {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: $spacing-xl;
+  padding: $spacing-md;
+  border: 1px dashed var(--border-color);
+  border-radius: $radius-lg;
+  background: color-mix(in srgb, var(--bg-secondary) 30%, transparent);
+  width: 100%;
+  margin-top: $spacing-md;
+
+  @media (max-width: 600px) {
+    flex-direction: column;
+    gap: $spacing-md;
+  }
 }
 
-.linkCard {
-  display: flex;
+.aboutLink {
+  display: inline-flex;
   align-items: center;
-  gap: $spacing-md;
-  padding: $spacing-md $spacing-lg;
-  background-color: var(--bg-secondary);
-  border: 1px solid var(--border-color);
-  border-radius: $radius-lg;
+  gap: $spacing-xs;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--primary-color);
   text-decoration: none;
-  color: inherit;
-  transition: all 0.2s ease;
+  transition: color 0.2s ease, transform 0.2s ease;
+
+  svg {
+    transition: transform 0.2s ease;
+  }
 
   &:hover {
-    background-color: var(--bg-hover);
-    border-color: var(--primary-color);
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    color: color-mix(in srgb, var(--primary-color) 80%, black);
+    transform: translateY(-1px);
+
+    svg {
+      transform: translate(2px, -2px);
+    }
   }
 
   &:active {
     transform: translateY(0);
   }
-}
-
-.linkIcon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 44px;
-  height: 44px;
-  border-radius: $radius-md;
-  background-color: var(--primary-color);
-  color: white;
-  flex-shrink: 0;
-
-  &.github {
-    background-color: #24292f;
-  }
-
-  &.docs {
-    background-color: var(--success-color);
-  }
-}
-
-.linkContent {
-  flex: 1;
-  min-width: 0;
-}
-
-.linkTitle {
-  display: flex;
-  align-items: center;
-  gap: $spacing-xs;
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--text-primary);
-  margin-bottom: 2px;
-
-  svg {
-    opacity: 0.5;
-    flex-shrink: 0;
-  }
-}
-
-.linkDesc {
-  font-size: 13px;
-  color: var(--text-secondary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 @media (max-width: 768px) {

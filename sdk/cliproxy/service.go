@@ -209,6 +209,7 @@ func (s *Service) handleAuthUpdate(ctx context.Context, update watcher.AuthUpdat
 	default:
 		log.Debugf("received unknown auth update action: %v", update.Action)
 	}
+	s.checkQwenCredentialsCleanup()
 }
 
 func (s *Service) ensureWebsocketGateway() {
@@ -479,6 +480,7 @@ func (s *Service) rebindExecutors() {
 			s.coreManager.ReconcileRegistryModelStates(context.Background(), auth.ID)
 		}
 	}
+	s.checkQwenCredentialsCleanup()
 }
 
 func (s *Service) applyConfigUpdate(newCfg *config.Config) {
@@ -581,7 +583,6 @@ func forceHomeRuntimeConfig(cfg *config.Config) {
 	cfg.WebsocketAuth = false
 	cfg.EnableGeminiCLIEndpoint = false
 	cfg.RemoteManagement.AllowRemote = false
-	cfg.RemoteManagement.DisableControlPanel = true
 }
 
 func (s *Service) registerHomeExecutors() {
@@ -1092,7 +1093,7 @@ func (s *Service) registerModelsForAuth(a *coreauth.Auth) {
 	if compatDetected {
 		provider = "openai-compatibility"
 	}
-	excluded := s.oauthExcludedModels(provider, authKind)
+	excluded := s.oauthExcludedModels(provider, authKind, a)
 	// Dynamically merge per-account exclusions (resolving the parent's Metadata if it's a virtual child) with live global exclusions.
 	var metadata map[string]any
 	if a.Attributes != nil {
@@ -1143,7 +1144,7 @@ func (s *Service) registerModelsForAuth(a *coreauth.Auth) {
 				models = buildGeminiConfigModels(entry)
 			}
 			if authKind == "apikey" {
-				excluded = entry.ExcludedModels
+				excluded = mergeExclusions(excluded, entry.ExcludedModels)
 			}
 		}
 		models = applyExcludedModels(models, excluded)
@@ -1155,7 +1156,7 @@ func (s *Service) registerModelsForAuth(a *coreauth.Auth) {
 				models = buildVertexCompatConfigModels(entry)
 			}
 			if authKind == "apikey" {
-				excluded = entry.ExcludedModels
+				excluded = mergeExclusions(excluded, entry.ExcludedModels)
 			}
 		}
 		models = applyExcludedModels(models, excluded)
@@ -1175,7 +1176,7 @@ func (s *Service) registerModelsForAuth(a *coreauth.Auth) {
 				models = buildClaudeConfigModels(entry)
 			}
 			if authKind == "apikey" {
-				excluded = entry.ExcludedModels
+				excluded = mergeExclusions(excluded, entry.ExcludedModels)
 			}
 		}
 		models = applyExcludedModels(models, excluded)
@@ -1201,7 +1202,7 @@ func (s *Service) registerModelsForAuth(a *coreauth.Auth) {
 				models = buildCodexConfigModels(entry)
 			}
 			if authKind == "apikey" {
-				excluded = entry.ExcludedModels
+				excluded = mergeExclusions(excluded, entry.ExcludedModels)
 			}
 		}
 		models = applyExcludedModels(models, excluded)
@@ -1209,7 +1210,10 @@ func (s *Service) registerModelsForAuth(a *coreauth.Auth) {
 		models = registry.GetKimiModels()
 		models = applyExcludedModels(models, excluded)
 	case "qwen":
-		models = registry.GetQwenModels()
+		models = registry.GetDiscoveredModels("qwen")
+		if len(models) == 0 {
+			models = registry.GetQwenModels()
+		}
 		models = applyExcludedModels(models, excluded)
 	case "xai":
 		models = registry.GetXAIModels()
@@ -1263,10 +1267,11 @@ func (s *Service) registerModelsForAuth(a *coreauth.Auth) {
 					ms := buildOpenAICompatibilityConfigModels(compat)
 					// Register and return
 					if len(ms) > 0 {
-						if providerKey == "" {
-							providerKey = "openai-compatibility"
-						}
-						s.registerResolvedModelsForAuth(a, providerKey, applyModelPrefixes(ms, a.Prefix, s.cfg.ForceModelPrefix))
+						resolvedProviderKey := strings.ToLower(compat.Name)
+						compatExcluded := s.oauthExcludedModels(providerKey, authKind, a)
+						mergedExcluded := mergeExclusions(excluded, compatExcluded)
+						ms = applyExcludedModels(ms, mergedExcluded)
+						s.registerResolvedModelsForAuth(a, resolvedProviderKey, applyModelPrefixes(ms, a.Prefix, s.cfg.ForceModelPrefix))
 					} else {
 						// Ensure stale registrations are cleared when model list becomes empty.
 						GlobalModelRegistry().UnregisterClient(a.ID)
@@ -1468,17 +1473,81 @@ func (s *Service) resolveConfigCodexKey(auth *coreauth.Auth) *config.CodexKey {
 	return nil
 }
 
-func (s *Service) oauthExcludedModels(provider, authKind string) []string {
+func (s *Service) oauthExcludedModels(provider, authKind string, a *coreauth.Auth) []string {
+	s.cfgMu.RLock()
 	cfg := s.cfg
+	s.cfgMu.RUnlock()
 	if cfg == nil {
 		return nil
 	}
-	authKindKey := strings.ToLower(strings.TrimSpace(authKind))
 	providerKey := strings.ToLower(strings.TrimSpace(provider))
-	if authKindKey == "apikey" {
-		return nil
+	if a != nil {
+		compatProviderKey, compatDisplayName, compatDetected := openAICompatInfoFromAuth(a)
+		if compatDetected {
+			if compatProviderKey != "" {
+				providerKey = compatProviderKey
+			} else if compatDisplayName != "" {
+				providerKey = compatDisplayName
+			}
+		}
+		if a.Attributes != nil {
+			if v := strings.TrimSpace(a.Attributes["provider_key"]); v != "" {
+				providerKey = strings.ToLower(v)
+			}
+		}
+		if strings.EqualFold(providerKey, "openai-compatibility") {
+			compatName := strings.TrimSpace(a.Provider)
+			if a.Attributes != nil {
+				if v := strings.TrimSpace(a.Attributes["compat_name"]); v != "" {
+					compatName = v
+				}
+			}
+			if compatName != "" {
+				providerKey = strings.ToLower(compatName)
+			}
+		}
 	}
-	return cfg.OAuthExcludedModels[providerKey]
+	providerKey = strings.ToLower(strings.TrimSpace(providerKey))
+	globalExclusions := cfg.OAuthExcludedModels[providerKey]
+
+	var credentialExclusions []string
+	if authKind == "apikey" && a != nil {
+		switch providerKey {
+		case "gemini":
+			if entry := s.resolveConfigGeminiKey(a); entry != nil {
+				credentialExclusions = entry.ExcludedModels
+			}
+		case "vertex", "vertex-api-key":
+			if entry := s.resolveConfigVertexCompatKey(a); entry != nil {
+				credentialExclusions = entry.ExcludedModels
+			}
+		case "claude":
+			if entry := s.resolveConfigClaudeKey(a); entry != nil {
+				credentialExclusions = entry.ExcludedModels
+			}
+		case "codex":
+			if entry := s.resolveConfigCodexKey(a); entry != nil {
+				credentialExclusions = entry.ExcludedModels
+			}
+		default:
+			// check OpenAICompatibility
+			compatName := strings.TrimSpace(a.Provider)
+			if a.Attributes != nil {
+				if v := strings.TrimSpace(a.Attributes["compat_name"]); v != "" {
+					compatName = v
+				}
+			}
+			for i := range cfg.OpenAICompatibility {
+				compat := &cfg.OpenAICompatibility[i]
+				if strings.EqualFold(compat.Name, compatName) {
+					credentialExclusions = compat.ExcludedModels
+					break
+				}
+			}
+		}
+	}
+
+	return mergeExclusions(globalExclusions, credentialExclusions)
 }
 
 func applyExcludedModels(models []*ModelInfo, excluded []string) []*ModelInfo {
@@ -1514,6 +1583,30 @@ func applyExcludedModels(models []*ModelInfo, excluded []string) []*ModelInfo {
 		}
 	}
 	return filtered
+}
+
+func mergeExclusions(a, b []string) []string {
+	seen := make(map[string]struct{})
+	var merged []string
+	for _, entry := range a {
+		trimmed := strings.ToLower(strings.TrimSpace(entry))
+		if trimmed != "" {
+			if _, exists := seen[trimmed]; !exists {
+				seen[trimmed] = struct{}{}
+				merged = append(merged, entry)
+			}
+		}
+	}
+	for _, entry := range b {
+		trimmed := strings.ToLower(strings.TrimSpace(entry))
+		if trimmed != "" {
+			if _, exists := seen[trimmed]; !exists {
+				seen[trimmed] = struct{}{}
+				merged = append(merged, entry)
+			}
+		}
+	}
+	return merged
 }
 
 func applyModelPrefixes(models []*ModelInfo, prefix string, forceModelPrefix bool) []*ModelInfo {
@@ -1879,4 +1972,112 @@ func extractPerAccountExcludedModels(metadata map[string]any) []string {
 		}
 	}
 	return result
+}
+
+// IsModelExcluded checks if a model is globally excluded.
+func (s *Service) IsModelExcluded(modelID, provider string) bool {
+	if s == nil {
+		return false
+	}
+	s.cfgMu.RLock()
+	cfg := s.cfg
+	s.cfgMu.RUnlock()
+
+	return isModelGloballyExcluded(cfg, modelID, provider)
+}
+
+func getModelProvider(modelID string) string {
+	baseID := strings.ToLower(modelID)
+	if idx := strings.Index(baseID, "/"); idx >= 0 {
+		baseID = baseID[idx+1:]
+	}
+	if strings.HasPrefix(baseID, "gemini-") {
+		return "gemini"
+	}
+	if strings.HasPrefix(baseID, "grok-") {
+		return "xai"
+	}
+	if strings.HasPrefix(baseID, "qwen") {
+		return "qwen"
+	}
+	if strings.Contains(baseID, "moonshot") || strings.HasPrefix(baseID, "kimi") {
+		return "kimi"
+	}
+	return "codex"
+}
+
+func isModelGloballyExcluded(cfg *config.Config, modelID string, provider string) bool {
+	if cfg == nil {
+		return false
+	}
+
+	modelID = strings.ToLower(strings.TrimSpace(modelID))
+	if modelID == "" {
+		return true
+	}
+
+	baseID := modelID
+	if idx := strings.Index(modelID, "/"); idx >= 0 {
+		baseID = modelID[idx+1:]
+	}
+
+	// Determine channels/providers to check
+	channels := []string{getModelProvider(modelID)}
+	if provider != "" {
+		channels = append(channels, strings.ToLower(strings.TrimSpace(provider)))
+	}
+	if idx := strings.Index(modelID, "/"); idx >= 0 {
+		prefixProvider := strings.ToLower(strings.TrimSpace(modelID[:idx]))
+		if prefixProvider != "" {
+			channels = append(channels, prefixProvider)
+		}
+	}
+
+	// Remove duplicates from channels
+	seenChannels := make(map[string]bool)
+	var uniqueChannels []string
+	for _, c := range channels {
+		if c != "" && !seenChannels[c] {
+			seenChannels[c] = true
+			uniqueChannels = append(uniqueChannels, c)
+		}
+	}
+
+	for _, channel := range uniqueChannels {
+		// 2. Check oauth-excluded-models
+		if len(cfg.OAuthExcludedModels) > 0 {
+			if excluded, ok := cfg.OAuthExcludedModels[channel]; ok {
+				for _, pattern := range excluded {
+					trimmedPattern := strings.ToLower(strings.TrimSpace(pattern))
+					if trimmedPattern != "" && (matchWildcard(trimmedPattern, modelID) || matchWildcard(trimmedPattern, baseID)) {
+						return true
+					}
+				}
+			}
+		}
+	}
+
+	return false
+}
+
+func (s *Service) hasActiveQwenCredentials() bool {
+	if s.coreManager == nil {
+		return false
+	}
+	auths := s.coreManager.List()
+	for _, a := range auths {
+		if a != nil && strings.EqualFold(strings.TrimSpace(a.Provider), "qwen") && !a.Disabled {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Service) checkQwenCredentialsCleanup() {
+	if !s.hasActiveQwenCredentials() {
+		disc := executor.GetQwenModelDiscovery(s.cfg)
+		disc.Stop()
+		disc.ClearCredentials()
+		registry.GetGlobalRegistry().UnregisterClient("qwen-dynamic")
+	}
 }
