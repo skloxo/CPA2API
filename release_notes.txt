@@ -1,0 +1,22 @@
+CPA2API Release v7.2.2-s.4
+
+This release introduces several bug fixes, UI layout optimizations, file restructuring, and robust build fallbacks, while maintaining full backward compatibility.
+
+### Key Changes:
+
+- **Backend Qwen Models Consistency Fix**:
+  Implemented dynamic models discovery and `ExcludedModels` pattern filtering to ensure reliable model routing and registry configuration.
+
+- **System Page UI Layout Optimizations**:
+  - Aligned the "API Version", "Build Date", and "Connection Status" values horizontally for cleaner visual presentation.
+  - Updated Tutorial links to point directly to the unified `skills/cpa2api-skill/SKILL.md`.
+
+- **Local Dev Build Variables Fallback**:
+  Added development environment build variable fallbacks, defaulting to `v7.2.2-s.4-dev` and the current build timestamp when not explicitly set.
+
+- **Skills & MCP Restructuring**:
+  - Restructured skills by unifying them under `skills/cpa2api-skill`.
+  - Renamed the MCP directory/file to `mcp/cpa2a.js`.
+
+- **Full Backward Compatibility**:
+  Preserves existing `config.yaml`, the 10 loaded credentials, and the SQLite statistics database (`stats.db`).

@@ -870,5 +870,66 @@ services:
        ```
     3. 将生成的单体 HTML 文件拷贝覆盖到后端静态资产目录：
        ```bash
-       cp dist/index.html ../static/management.html
-       ```
+        cp dist/index.html ../static/management.html
+        ```
+
+---
+
+## 🌿 7. CPA2API Development Lifecycle SOP (标准操作规程)
+
+This Standard Operating Procedure (SOP) defines the mandatory lifecycle stages that every developer or agent must follow when developing, deploying, and handing off changes for CPA2API and its management dashboard.
+
+### 📋 Stage 1: Onboarding (开发准备与上下文加载)
+*   **Load MEMORY.md**: Before modifying any code, the agent or developer must load the workspace `MEMORY.md` to acquire the context of past lessons, operational histories, and active parameters.
+*   **Ingest SKILL.md**: Read this specification (`skills/cpa2api-skill/SKILL.md`) in its entirety to understand integration architecture, the 7-Point Alignment Checklist, and the Clean-Pristine Display Name Rule.
+*   **Confirmation Thought Prefix**: In the initial thought block, the agent MUST prepend the confirmation message:
+    > "Acknowledged. I have read the CPA Integration Skill Spec, and will strictly conform to the 7-Point checklist and the Clean-Pristine rule."
+
+### 💻 Stage 2: Coding & Development (编码与本地测试)
+*   **Staging/Dev Ports**: All code development, testing, and debugging must target port `9317` (Backend) and `19317` (Frontend Manager). Never touch production ports (`8317` / `18317`) during coding.
+*   **Compile Verification**: Run command verification after changes to ensure compilation succeeds:
+    ```bash
+    go build -o test-output ./cmd/server && rm test-output
+    ```
+*   **Frontend Monorepo Build**: If updating frontend code, run the Vite single-file pipeline inside the `web/` directory:
+    ```bash
+    cd web && npm run build && cp dist/index.html ../static/management.html
+    ```
+*   **config.yaml Protection Guard**: Never modify the configuration file `config.yaml` directly. Changes to keys must be verified for syntax in the development environment and committed via the dashboard management console or approved by the user.
+
+### 🧪 Stage 3: Dev Verification (开发验证)
+*   **Recreate Container**: Rebuild and recreate the dev container (`cpa2api-dev` / `cpa2api-manager-dev`) to ensure clean state initialization.
+*   **Port Verification**: Test local ports (`9317` / `19317`) using `curl` and verify response schema compliance.
+*   **Card Rendering Check**: Inspect console outputs and test UI actions (e.g. model aliases, proxy hints) to confirm that elements are working as intended.
+
+### 🚀 Stage 4: Prod Release & Deployment (生产发布与数据安全)
+*   **Mount Static Files**: Ensure the single-file built HTML in `/static/management.html` is correctly routed by the production server binary.
+*   **No-Cache Build**: Rebuild the production container without using cached layers to avoid outdated assets:
+    ```bash
+    docker compose build --no-cache cli-proxy-api
+    ```
+*   **Force-Recreate Container**: Redeploy the services with force-recreate to apply all environment variables and mount points:
+    ```bash
+    docker compose up --force-recreate -d cli-proxy-api
+    ```
+*   **Data Safety Checks**: Ensure persistent databases (`cpa-manager-data`) are backed up via temporary alpine tarball command before executing recreation.
+
+### 🏷️ Stage 5: Tag & Release (版本归档与发布)
+*   **Redaction & Desensitization Rule**:
+    - **NEVER** commit `config.yaml`, `config-dev.yaml`, `auths/*.json`, `*.sqlite`, or `*.log` to Git.
+    - Always redact/use fake placeholders (e.g. `sk-xxxx`, `eyJhbGciOi`) for secrets in documents and code comments.
+    - Check `git status` and `git diff` before pushing to ensure no sensitive data is leaked.
+*   **Tag Version**: Tag the validated commit with the defined custom patch format (e.g. `v7.2.2-s.4` for backend, `v1.3.3-s.1` for frontend).
+*   **Push Tags**: Push tags to the upstream repository:
+    ```bash
+    git push origin <tag_name>
+    ```
+*   **Create GitHub Release**: Generate a release notes draft via GitHub CLI detailing changes, testing results, and migration path:
+    ```bash
+    gh release create <tag_name> --title "<tag_name> Release" --notes "Release Notes Here"
+    ```
+
+### 🤝 Stage 6: Handoff (项目交付与文档同步)
+*   **Update Walkthrough**: Document the exact changes, E2E tests, and implementation results inside `walkthrough.md`.
+*   **Sync Skills**: Synchronize the `skills/cpa2api-skill/` directory from the repository to the global openclaw workspace (`/home/skloxo/aho/openclaw/skills/cpa2api-skill/`) and the home config directory (`/home/skloxo/.openclaw/skills/cpa2api-skill/`).
+*   **Write Handover Doc**: Create or update the `handover_documentation.md` containing active ports, volume mounts, release hashes, and a summary of completed deliverables.
