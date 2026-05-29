@@ -1,5 +1,5 @@
 # CPA2API 开发环境 Docker Compose
-# 端口: 9317 (API), 19317 (前端管理页面)
+# 端口: 9317 (API /management.html 路由静态分发管理页面)
 # 使用 host network 模式以确保 Clash 代理 (127.0.0.1:7897) 可达
 
 services:

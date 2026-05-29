@@ -28,8 +28,8 @@ the Technical Specification and Specs set forth in:
 `skills/cpa2api-skill/SKILL.md`
 
 Please verify the following rules before starting:
-1. DO NOT touch the production services running on Ports 8317 and 18317. 
-   All development, testing, and debugging must occur on Dev Ports (9317 / 19317).
+1. DO NOT touch the production services running on Port 8317. 
+   All development, testing, and debugging must occur on Dev Port (9317).
 2. UNDERSTAND the "Clean-Pristine" Display Name Rule: Do not map Provider Model IDs 
    to friendly names. Preserve the provider's upstream original identifiers in all list views.
 3. ENFORCE credential safety: Ensure new credentials or edits write to disk with 
@@ -138,7 +138,7 @@ flowchart TD
 
 > [!NOTE]
 > **Bilingual Insight (双语解析)**:  
-> When exposing models to clients via `/v1/models` or populating administrative Dashboards (such as `CPA2API-Manager` running on Port 19317), **Qwen original IDs must be preserved exactly as they are** instead of being mapped to generic/friendly names (e.g. "Qwen 3.5 Max").  
+> When exposing models to clients via `/v1/models` or populating administrative Dashboards (such as `CPA2API-Manager` served under `/management.html` route), **Qwen original IDs must be preserved exactly as they are** instead of being mapped to generic/friendly names (e.g. "Qwen 3.5 Max").  
 > 当将模型暴露给客户端或在管理后台展示时，必须严格保留 Qwen 原始的上游 ID（例如 `qwen3.5-plus`），禁止将其映射为“通俗友好”的显示名称。
 
 *   **Why?** This prevents cascading developer confusion regarding capabilities. Upstream web channels constantly roll out specialized versions (e.g., `-thinking`, `-search`, `-deep-research`). Forcing the Display Name to equal the exact Model ID ensures transparent verification of executing models.
@@ -291,10 +291,10 @@ The following versions have been fully validated via E2E regression testing (100
     - Integrated frontend manager configuration page.
   - **Verification Status**: E2E regression test PASS.
 
-- **Frontend Manager (CPA2API-Manager)**: `v1.3.3-s.1` [FROZEN]
-  - **Code Repository Path**: `/home/skloxo/aho/openclaw/project/qwen2api/CPA2API-Manager`
-  - **Staging Port**: `19317`
-  - **Production Port**: `18317`
+- **Frontend Manager (CPA2API-Manager)**: `v1.3.3-s.1` [INTEGRATED]
+  - **Code Repository Path**: `/home/skloxo/aho/openclaw/project/qwen2api/CPA2API-Manager` (Source repository, built and integrated directly into backend)
+  - **Staging/Dev Routing**: Port `9317` under `/management.html`
+  - **Production Routing**: Port `8317` under `/management.html`
   - **Validated Core Features**: Localized proxy status hints, dynamic model fallback listing.
 
 - **Associated Engineering Walkthroughs & Artifacts**:
@@ -821,8 +821,8 @@ services:
 
 #### 12.1 环境隔离与生产保护
 *   **规范**：严格区分生产环境与开发/测试环境。
-    *   **生产环境端口**：`8317`（CPA 后端）与 `18317`（cpa-manager 面板）。**绝对禁止**任何未经授权的直接操作与测试。
-    *   **开发测试端口**：`9317` 与 `19317`。所有的代码调试、Provider 集成测试必须在开发端口进行。
+    *   **生产环境**：端口 `8317`（CPA 后端与内置的 `/management.html` 面板）。**绝对禁止**任何未经授权的直接操作与测试。
+    *   **开发测试环境**：端口 `9317`（开发后端与内置的 `/management.html` 面板）。所有的代码调试、Provider 集成测试必须在开发端点进行。
 *   **原则**：对生产环境“只读”分析，修改需经主人确认。
 
 #### 12.2 配置文件保护（config.yaml Protection Guard）
@@ -886,7 +886,7 @@ This Standard Operating Procedure (SOP) defines the mandatory lifecycle stages t
     > "Acknowledged. I have read the CPA Integration Skill Spec, and will strictly conform to the 7-Point checklist and the Clean-Pristine rule."
 
 ### 💻 Stage 2: Coding & Development (编码与本地测试)
-*   **Staging/Dev Ports**: All code development, testing, and debugging must target port `9317` (Backend) and `19317` (Frontend Manager). Never touch production ports (`8317` / `18317`) during coding.
+*   **Staging/Dev Ports**: All code development, testing, and debugging must target port `9317` (Backend/Integrated Manager). Never touch production port `8317` during coding.
 *   **Compile Verification**: Run command verification after changes to ensure compilation succeeds:
     ```bash
     go build -o test-output ./cmd/server && rm test-output
