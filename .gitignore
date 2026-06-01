@@ -6,6 +6,10 @@ cli-proxy-api
 config.yaml
 .env
 
+# Docker Compose (deployment files live in /home/skloxo/services/cpa2api/, not here)
+docker-compose.yml
+docker-compose.dev.yml
+
 # Generated content
 bin/*
 logs/*
@@ -25,8 +29,8 @@ static/*
 auths/*
 !auths/.gitkeep
 
-# Documentation
-docs/*
+# Documentation (only ignore local tool docs, not deployment docs)
+.cursor/*
 AGENTS.md
 CLAUDE.md
 GEMINI.md
