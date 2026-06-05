@@ -51,7 +51,7 @@
 ### 2. 克隆项目与安装依赖
 ```bash
 # 进入前端工作空间目录
-cd /home/skloxo/aho/openclaw/project/qwen2api/CPA2API-Manager
+cd /home/skloxo/aho/openclaw/project/CPA/CPA2API/web
 
 # 安装依赖项
 npm install

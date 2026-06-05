@@ -3,7 +3,9 @@
 Go 1.26+ proxy server providing OpenAI/Gemini/Claude/Codex compatible APIs with OAuth and round-robin load balancing.
 
 ## Repository
-- GitHub: https://github.com/router-for-me/CLIProxyAPI
+- Backend Upstream: https://github.com/router-for-me/CLIProxyAPI
+- Frontend Upstream: https://github.com/seakee/CPA-Manager
+  - Note: The frontend (`web/` directory) in this project is integrated and customized based on `seakee/CPA-Manager`. Do NOT use or merge the official repository's (`router-for-me/Cli-Proxy-API-Management-Center`) frontend management page. Ensure that when iterating or updating the frontend code, we do not merge the wrong upstream repository.
 
 ## Commands
 ```bash

@@ -50,8 +50,8 @@
 
 本仓库采用 Monorepo 结构，已将核心运维技能与智能体 MCP 服务器整合入代码树：
 
-*   **Ops 技能书**：[skills/cpa2api-skill/SKILL.md](file:///home/skloxo/aho/openclaw/project/qwen2api/CPA2API/skills/cpa2api-skill/SKILL.md) 包含了超万字的生产部署、认证管理、路由负载、故障排查和性能调优的最佳实践指南。AI 智能体可直接加载该 Markdown 资产并将其吸收为自身技能。
-*   **统一 MCP 服务**：[mcp/cpa2a.js](file:///home/skloxo/aho/openclaw/project/qwen2api/CPA2API/mcp/cpa2a.js) 是基于 Model Context Protocol 实现的 node.js 服务器，向大模型提供健康检查、用量统计、无缝升级等 API 能力。
+*   **Ops 技能书**：[skills/cpa2api-skill/SKILL.md](file:///home/skloxo/aho/openclaw/project/CPA/CPA2API/skills/cpa2api-skill/SKILL.md) 包含了超万字的生产部署、认证管理、路由负载、故障排查和性能调优的最佳实践指南。AI 智能体可直接加载该 Markdown 资产并将其吸收为自身技能。
+*   **统一 MCP 服务**：[mcp/cpa2a.js](file:///home/skloxo/aho/openclaw/project/CPA/CPA2API/mcp/cpa2a.js) 是基于 Model Context Protocol 实现的 node.js 服务器，向大模型提供健康检查、用量统计、无缝升级等 API 能力。
 
 ---
 
@@ -122,7 +122,7 @@ graph TD
 确保您的本地 Go 版本为 `1.26+`：
 ```bash
 # 进入后端目录
-cd /home/skloxo/aho/openclaw/project/qwen2api/CPA2API
+cd /home/skloxo/aho/openclaw/project/CPA/CPA2API
 
 # 下载 Go modules 依赖
 go mod download

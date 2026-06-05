@@ -8,7 +8,7 @@ config.yaml
 
 # Docker Compose (deployment files live in /home/skloxo/services/cpa2api/, not here)
 docker-compose.yml
-docker-compose.dev.yml
+compose.dev.yml
 
 # Generated content
 bin/*

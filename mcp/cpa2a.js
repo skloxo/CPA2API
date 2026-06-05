@@ -2,8 +2,10 @@
 /**
  * CPA (cpa2api) MCP Server
  * 统一运维管理：状态/健康/配置/升级
- * 版本: 2.0.0 | 更新: 2026-05-22
- * 变更: 合并 auto-upgrade.sh 脚本到 MCP 工具，统一维护
+ * 版本: 2.1.0 | 更新: 2026-06-02
+ * 变更: 适配独立部署目录 /home/skloxo/services/cpa2api/
+ *       容器名统一为 cli-proxy-api（由 docker compose 管理）
+ *       升级逻辑改用 docker compose pull && up -d
  */
 
 const http = require('http');
@@ -11,10 +13,10 @@ const https = require('https');
 const { execSync } = require('child_process');
 const fs = require('fs');
 
-const CPA_BASE = process.env.CPA_BASE_URL || 'http://localhost:8317';
-const CPA_MGMT = process.env.CPA_MGMT_URL || 'http://localhost:18317';
-const CPA_KEY = process.env.CPA_API_KEY || '';
-const CPA_MGR_REPO = 'seakee/cpa-manager';
+const CPA_BASE       = process.env.CPA_BASE_URL  || 'http://localhost:8317';
+const CPA_KEY        = process.env.CPA_API_KEY   || '';
+const CPA_DEPLOY_DIR = process.env.CPA_DEPLOY_DIR || '/home/skloxo/services/cpa2api';
+const CONTAINER_NAME = 'cli-proxy-api';
 
 // ============ MCP 工具定义 ============
 
@@ -41,7 +43,7 @@ const TOOLS = [
   },
   {
     name: 'cpa_health',
-    description: '执行 CPA 完整健康检查（服务、API、模型、存储、Docker）',
+    description: '执行 CPA 完整健康检查（服务、API、模型、Docker 容器）',
     inputSchema: { type: 'object', properties: {} }
   },
   {
@@ -51,19 +53,18 @@ const TOOLS = [
   },
   {
     name: 'cpa_upgrade_check',
-    description: '检查 CPA 和 cpa-manager 是否有新版本可用',
+    description: '检查 CPA 是否有新版本可用（对比 .env 版本与 DockerHub latest）',
     inputSchema: { type: 'object', properties: {} }
   },
   {
     name: 'cpa_upgrade',
-    description: '执行 CPA 和/或 cpa-manager 升级（含备份、健康检查、自动回滚）',
+    description: '执行 CPA 升级：修改 .env 版本号，docker compose pull && up -d',
     inputSchema: {
       type: 'object',
       properties: {
-        component: {
+        version: {
           type: 'string',
-          enum: ['cpa', 'cpa-manager', 'all'],
-          description: '升级目标，默认 all'
+          description: '目标版本号，例如 v7.2.3。不填则拉取 latest'
         },
         dry_run: {
           type: 'boolean',
@@ -80,7 +81,7 @@ const TOOLS = [
       properties: {
         config_path: {
           type: 'string',
-          description: '配置文件路径（可选，默认从 CPA 容器读取）'
+          description: `配置文件路径，默认 ${CPA_DEPLOY_DIR}/config.yaml`
         }
       }
     }
@@ -110,7 +111,7 @@ function httpRequest(url, options = {}) {
   });
 }
 
-function dockerExec(cmd, timeout = 10000) {
+function sh(cmd, timeout = 10000) {
   try {
     return execSync(cmd, { encoding: 'utf-8', timeout }).trim();
   } catch (e) {
@@ -125,268 +126,92 @@ function log(msg) {
 
 // ============ 版本检测 ============
 
-function getCpaLocalVersion() {
-  const raw = dockerExec('docker exec CPA /cpa2api/cpa2api --version 2>/dev/null | head -1');
+/** 读取部署目录 .env 里的 CPA_VERSION */
+function getLocalVersion() {
+  const envFile = `${CPA_DEPLOY_DIR}/.env`;
+  if (!fs.existsSync(envFile)) return null;
+  const m = fs.readFileSync(envFile, 'utf8').match(/^CPA_VERSION=(.+)$/m);
+  return m ? m[1].trim() : null;
+}
+
+/** 从运行中的容器读取实际版本 */
+function getContainerVersion() {
+  const raw = sh(`docker exec ${CONTAINER_NAME} /app/cpa2api --version 2>/dev/null | head -1`);
   if (!raw) return null;
-  const m = raw.match(/Version:\s*(v[\d.]+)/);
+  const m = raw.match(/Version:\s*(v[\d.\w-]+)/);
   return m ? m[1] : raw;
 }
 
-// ============ 获取远程最新版本 ============
-function getCpaRemoteVersion() {
-  const raw = dockerExec('docker run --rm eceasy/cli-proxy-api:latest /cpa2api/cpa2api --version 2>/dev/null | head -1');
+/** 从 DockerHub 获取 latest 镜像版本 */
+function getRemoteVersion() {
+  const raw = sh('docker run --rm --entrypoint /app/cpa2api eceasy/cli-proxy-api:latest --version 2>/dev/null | head -1', 30000);
   if (!raw) return null;
-  const m = raw.match(/Version:\s*(v[\d.]+)/);
+  const m = raw.match(/Version:\s*(v[\d.\w-]+)/);
   return m ? m[1] : raw;
-}
-
-function getMgrLocalVersion() {
-  const binary = dockerExec("docker inspect cpa-manager --format '{{range .HostConfig.Binds}}{{println .}}{{end}}' 2>/dev/null | grep cpa-manager | grep -v data | cut -d: -f1");
-  if (!binary || !fs.existsSync(binary)) return null;
-  const raw = dockerExec(`go version -m "${binary}" 2>/dev/null | grep cpa-manager | grep -oP 'v?[\\d.]+' | head -1`);
-  return raw ? raw.replace(/^v/, '') : null;
-}
-
-function getMgrRemoteVersion() {
-  // 优先 gh cli（绕过 GitHub API 限流）
-  if (dockerExec('which gh 2>/dev/null')) {
-    const raw = dockerExec(`gh release view --repo "${CPA_MGR_REPO}" --json tagName 2>/dev/null`);
-    if (raw) {
-      try {
-        const d = JSON.parse(raw);
-        return d.tagName?.replace(/^v/, '') || null;
-      } catch {}
-    }
-  }
-  const raw = dockerExec(`curl -sf "https://api.github.com/repos/${CPA_MGR_REPO}/releases/latest" 2>/dev/null`);
-  if (raw) {
-    try {
-      return JSON.parse(raw).tag_name?.replace(/^v/, '') || null;
-    } catch {}
-  }
-  return null;
 }
 
 // ============ 健康检查 ============
 
 function healthCheck(port, retries = 3) {
   for (let i = 0; i < retries; i++) {
-    if (dockerExec(`curl -sf --max-time 5 http://localhost:${port}/ > /dev/null 2>&1 && echo OK`)) return true;
-    if (i < retries - 1) dockerExec('sleep 2');
+    if (sh(`curl -sf --max-time 5 http://localhost:${port}/healthz > /dev/null 2>&1 && echo OK`)) return true;
+    if (i < retries - 1) sh('sleep 2');
   }
   return false;
 }
 
-function cpaApiCheck() {
-  return !!dockerExec(`curl -sf --max-time 5 -H "Authorization: Bearer ${CPA_KEY}" http://localhost:8317/v1/models > /dev/null 2>&1 && echo OK`);
-}
+// ============ CPA 升级（使用 docker compose） ============
 
-// ============ CPA 升级 ============
+function upgradeCpa(targetVersion, dryRun) {
+  const result = { steps: [] };
+  const localVer  = getLocalVersion();
+  const actualVer = getContainerVersion();
 
-function upgradeCpa(dryRun) {
-  const result = { component: 'cpa', steps: [] };
-  const localVer = getCpaLocalVersion();
-  const remoteVer = getCpaRemoteVersion();
+  result.env_version       = localVer  || 'unknown';
+  result.container_version = actualVer || 'unknown';
+  result.target_version    = targetVersion || 'latest';
 
-  result.local_version = localVer || 'unknown';
-  result.remote_version = remoteVer || 'unknown';
-
-  if (!remoteVer) {
-    result.error = '无法获取远程版本';
+  if (dryRun) {
+    result.mode    = 'dry-run';
+    result.message = `将执行: cd ${CPA_DEPLOY_DIR} && sed -i CPA_VERSION=${result.target_version} .env && docker compose pull && docker compose up -d`;
     return result;
   }
 
-  if (localVer === remoteVer) {
-    result.status = 'already_latest';
-    result.message = `✅ CPA 已是最新版本 (${localVer})`;
-    return result;
+  // 1. 修改 .env 版本号
+  if (targetVersion) {
+    log(`CPA: 更新 .env CPA_VERSION → ${targetVersion}`);
+    const envPath = `${CPA_DEPLOY_DIR}/.env`;
+    let envContent = fs.readFileSync(envPath, 'utf8');
+    envContent = envContent.replace(/^CPA_VERSION=.*/m, `CPA_VERSION=${targetVersion}`);
+    fs.writeFileSync(envPath, envContent);
+    result.steps.push({ step: 'update_env', status: 'ok', version: targetVersion });
   }
 
-  result.needs_upgrade = true;
-  result.message = `⬆️ CPA 可升级: ${localVer} → ${remoteVer}`;
+  // 2. docker compose pull
+  log('CPA: docker compose pull...');
+  const pullOut = sh(`cd ${CPA_DEPLOY_DIR} && docker compose pull 2>&1 | tail -5`, 120000);
+  result.steps.push({ step: 'pull', status: pullOut ? 'ok' : 'failed', output: pullOut });
 
-  if (dryRun) return result;
+  // 3. docker compose up -d
+  log('CPA: docker compose up -d...');
+  const upOut = sh(`cd ${CPA_DEPLOY_DIR} && docker compose up -d 2>&1`, 30000);
+  result.steps.push({ step: 'up', status: upOut ? 'ok' : 'failed', output: upOut });
 
-  // 拉取新镜像
-  log('CPA: 拉取新镜像...');
-  result.steps.push({ step: 'pull', status: dockerExec('docker pull eceasy/cli-proxy-api:latest 2>&1 | tail -3', 60000) ? 'ok' : 'failed' });
-
-  // 再次检查版本
-  const postPullVer = getCpaRemoteVersion();
-  if (localVer === postPullVer) {
-    result.status = 'no_change';
-    result.message = '拉取后版本未变化';
-    return result;
-  }
-
-  // 备份
-  const rollbackTag = `pre-auto-upgrade-${Date.now()}`;
-  log(`CPA: 备份镜像 ${rollbackTag}...`);
-  dockerExec(`docker tag eceasy/cli-proxy-api:latest eceasy/cli-proxy-api:${rollbackTag}`);
-  result.rollback_tag = rollbackTag;
-
-  // 获取容器参数
-  const binds = dockerExec("docker inspect CPA --format '{{range .HostConfig.Binds}}-v {{.}} {{end}}'") || '';
-  const envs = (dockerExec("docker inspect CPA --format '{{range .Config.Env}}-e {{.}} {{end}}'") || '').replace(/-e PATH=[^ ]+/g, '');
-
-  // 停止旧容器
-  log('CPA: 停止旧容器...');
-  dockerExec('docker stop CPA 2>/dev/null; docker rm CPA 2>/dev/null');
-
-  // 启动新容器
-  log('CPA: 启动新容器...');
-  const runCmd = `docker run -d --name CPA --restart=unless-stopped --network=host ${envs} ${binds} eceasy/cli-proxy-api:latest`;
-  dockerExec(runCmd);
-  result.steps.push({ step: 'restart', status: 'ok' });
-
-  // 健康检查
+  // 4. 健康检查
   log('CPA: 等待启动...');
-  dockerExec('sleep 5');
-  const healthy = healthCheck(8317) && cpaApiCheck();
+  sh('sleep 5');
+  const healthy = healthCheck(8317);
 
   if (healthy) {
-    result.status = 'success';
-    result.message = `✅ CPA 升级成功: ${localVer} → ${postPullVer}`;
+    result.status  = 'success';
+    result.message = `✅ CPA 升级成功，当前版本: ${getContainerVersion() || 'unknown'}`;
     result.steps.push({ step: 'health_check', status: 'ok' });
   } else {
-    // 回滚
-    log('CPA: 健康检查失败，回滚...');
-    dockerExec('docker stop CPA 2>/dev/null; docker rm CPA 2>/dev/null');
-    dockerExec(`docker run -d --name CPA --restart=unless-stopped --network=host ${envs} ${binds} eceasy/cli-proxy-api:${rollbackTag}`);
-    dockerExec('sleep 5');
-    const rolledBack = healthCheck(8317);
-    result.status = rolledBack ? 'rolled_back' : 'rollback_failed';
-    result.message = rolledBack ? '⚠️ CPA 升级失败，已回滚' : '❌ CPA 升级失败且回滚失败！';
-    result.steps.push({ step: 'rollback', status: rolledBack ? 'ok' : 'failed' });
+    result.status  = 'failed';
+    result.message = '❌ 升级后健康检查失败，请手动检查: docker logs cli-proxy-api';
+    result.steps.push({ step: 'health_check', status: 'failed' });
   }
 
-  return result;
-}
-
-// ============ cpa-manager 升级 ============
-
-function upgradeMgr(dryRun) {
-  const result = { component: 'cpa-manager', steps: [] };
-  const localVer = getMgrLocalVersion();
-  const remoteVer = getMgrRemoteVersion();
-
-  result.local_version = localVer || 'unknown';
-  result.remote_version = remoteVer || 'unknown';
-
-  if (!remoteVer) {
-    result.error = '无法获取远程版本';
-    return result;
-  }
-
-  if (localVer === remoteVer) {
-    result.status = 'already_latest';
-    result.message = `✅ cpa-manager 已是最新版本 (${localVer})`;
-    return result;
-  }
-
-  result.needs_upgrade = true;
-  result.message = `⬆️ cpa-manager 可升级: ${localVer} → ${remoteVer}`;
-
-  if (dryRun) return result;
-
-  // 备份当前二进制
-  const currentBinary = dockerExec("docker inspect cpa-manager --format '{{range .HostConfig.Binds}}{{println .}}{{end}}' 2>/dev/null | grep cpa-manager | grep -v data | cut -d: -f1");
-  if (currentBinary && fs.existsSync(currentBinary)) {
-    const backup = `${currentBinary}.bak`;
-    log(`cpa-manager: 备份二进制 → ${backup}`);
-    fs.copyFileSync(currentBinary, backup);
-    result.backup = backup;
-  }
-
-  // 下载新版本
-  const tmpDir = `/tmp/cpa-mgr-upgrade-${Date.now()}`;
-  fs.mkdirSync(tmpDir, { recursive: true });
-  log(`cpa-manager: 下载 v${remoteVer}...`);
-
-  let downloaded = false;
-  // 优先 gh cli
-  if (dockerExec('which gh 2>/dev/null')) {
-    downloaded = !!dockerExec(`gh release download v${remoteVer} --repo "${CPA_MGR_REPO}" --pattern "*linux_amd64*" --dir "${tmpDir}" 2>&1`, 60000);
-  }
-  // fallback curl
-  if (!downloaded) {
-    const url = `https://github.com/${CPA_MGR_REPO}/releases/download/v${remoteVer}/cpa-manager_v${remoteVer}_linux_amd64.tar.gz`;
-    downloaded = !!dockerExec(`curl -L -o "${tmpDir}/cpa-manager.tar.gz" "${url}" 2>&1`, 60000);
-    if (downloaded) dockerExec(`cd "${tmpDir}" && tar xzf cpa-manager.tar.gz 2>/dev/null`);
-  }
-
-  if (!downloaded) {
-    result.error = '下载失败';
-    return result;
-  }
-
-  // 找到二进制
-  const newBinary = dockerExec(`find "${tmpDir}" -name "cpa-manager" -type f ! -name "*.tar.gz" | head -1`);
-  if (!newBinary) {
-    result.error = '解压后未找到二进制';
-    return result;
-  }
-
-  // 部署
-  const newPath = `/home/skloxo/cpa-manager-v${remoteVer}`;
-  fs.copyFileSync(newBinary, newPath);
-  fs.chmodSync(newPath, 0o755);
-  log(`cpa-manager: 部署到 ${newPath}`);
-  result.steps.push({ step: 'download', status: 'ok', path: newPath });
-
-  // 获取管理密钥
-  const mgmtKey = dockerExec("grep secret-key /home/skloxo/cpa-official/config/config.yaml | sed 's/.*secret-key: *//' | tr -d \"'\\\"\"") || '';
-
-  // 停止旧容器
-  log('cpa-manager: 停止旧容器...');
-  dockerExec('docker stop cpa-manager 2>/dev/null; docker rm cpa-manager 2>/dev/null');
-
-  // 启动新容器
-  log('cpa-manager: 启动新容器...');
-  const runCmd = `docker run -d --name cpa-manager --restart=unless-stopped --network=host \
-    --entrypoint cpa-manager \
-    -v "${newPath}:/usr/local/bin/cpa-manager:ro" \
-    -v "/home/skloxo/cpa-manager-data:/data" \
-    -e CPA_BASE_URL=http://127.0.0.1:8317 \
-    -e CPA_MANAGEMENT_KEY="${mgmtKey}" \
-    -e HTTP_ADDR=0.0.0.0:18317 \
-    -e USAGE_DB_PATH=/data/usage.sqlite \
-    -e USAGE_COLLECTOR_MODE=auto \
-    -e USAGE_DATA_DIR=/data \
-    -e TZ=Asia/Shanghai \
-    eceasy/cli-proxy-api:latest`;
-  dockerExec(runCmd);
-  result.steps.push({ step: 'restart', status: 'ok' });
-
-  // 健康检查
-  log('cpa-manager: 等待启动...');
-  dockerExec('sleep 5');
-  const healthy = healthCheck(18317);
-
-  if (healthy) {
-    result.status = 'success';
-    result.message = `✅ cpa-manager 升级成功: ${localVer} → ${remoteVer}`;
-    result.steps.push({ step: 'health_check', status: 'ok' });
-    // 清理
-    dockerExec(`rm -rf "${tmpDir}"`);
-  } else {
-    // 回滚
-    log('cpa-manager: 健康检查失败，回滚...');
-    if (result.backup && fs.existsSync(result.backup)) {
-      fs.copyFileSync(result.backup, currentBinary);
-      dockerExec('docker stop cpa-manager 2>/dev/null; docker rm cpa-manager 2>/dev/null');
-      dockerExec(runCmd.replace(newPath, currentBinary));
-      dockerExec('sleep 5');
-      const rolledBack = healthCheck(18317);
-      result.status = rolledBack ? 'rolled_back' : 'rollback_failed';
-      result.message = rolledBack ? '⚠️ cpa-manager 升级失败，已回滚' : '❌ cpa-manager 升级失败且回滚失败！';
-    } else {
-      result.status = 'rollback_failed';
-      result.message = '❌ cpa-manager 升级失败且无备份可回滚！';
-    }
-  }
-
-  dockerExec(`rm -rf "${tmpDir}"`);
   return result;
 }
 
@@ -394,18 +219,18 @@ function upgradeMgr(dryRun) {
 
 async function handleTool(name, args) {
   switch (name) {
+
     case 'cpa_status': {
       const checks = {};
       try {
         await httpRequest(`${CPA_BASE}/v1/models`, { headers: { 'Authorization': `Bearer ${CPA_KEY}` } });
-        checks.cpa_backend = 'healthy';
-      } catch (e) { checks.cpa_backend = `error: ${e.message}`; }
-      try { await httpRequest(`${CPA_MGMT}/`); checks.cpa_manager = 'healthy'; }
-      catch (e) { checks.cpa_manager = `error: ${e.message}`; }
-      checks.cpa_version = getCpaLocalVersion() || 'unknown';
-      checks.cpa_manager_version = getMgrLocalVersion() || 'unknown';
-      checks.cpa_container = dockerExec('docker ps --filter name=CPA --format "{{.Status}}"') || 'not found';
-      checks.cpa_manager_container = dockerExec('docker ps --filter name=cpa-manager --format "{{.Status}}"') || 'not found';
+        checks.api = 'healthy';
+      } catch (e) { checks.api = `error: ${e.message}`; }
+      checks.container_version = getContainerVersion() || 'unknown';
+      checks.env_version       = getLocalVersion()     || 'unknown';
+      checks.deploy_dir        = CPA_DEPLOY_DIR;
+      checks.container_status  = sh(`docker ps --filter name=${CONTAINER_NAME} --format "{{.Status}}"`) || 'not found';
+      checks.uptime            = sh(`docker inspect ${CONTAINER_NAME} --format "{{.State.StartedAt}}" 2>/dev/null`) || 'unknown';
       return checks;
     }
 
@@ -418,104 +243,87 @@ async function handleTool(name, args) {
 
     case 'cpa_usage': {
       const date = args?.date || new Date().toISOString().split('T')[0];
+      const dbPath = `${CPA_DEPLOY_DIR}/auths/usage.sqlite`;
       try {
         const result = execSync(
-          `sqlite3 /home/skloxo/cpa-manager-data/usage.sqlite "SELECT model, COUNT(*) as requests, SUM(input_tokens) as input, SUM(output_tokens) as output, SUM(total_tokens) as total FROM usage_events WHERE date(timestamp) = '${date}' GROUP BY model ORDER BY requests DESC;" 2>/dev/null`,
+          `sqlite3 "${dbPath}" "SELECT model, COUNT(*) as requests, SUM(input_tokens) as input, SUM(output_tokens) as output, SUM(total_tokens) as total FROM usage_events WHERE date(timestamp) = '${date}' GROUP BY model ORDER BY requests DESC;" 2>/dev/null`,
           { encoding: 'utf-8', timeout: 5000 }
         ).trim();
-        return { date, data: result || 'No data' };
+        return { date, db: dbPath, data: result || 'No data' };
       } catch (e) { return { date, error: e.message }; }
     }
 
     case 'cpa_health': {
       const checks = [];
-      try { await httpRequest(`${CPA_BASE}/v1/models`, { headers: { 'Authorization': `Bearer ${CPA_KEY}` } }); checks.push({ name: 'CPA 后端 API', status: 'ok', port: 8317 }); }
-      catch { checks.push({ name: 'CPA 后端 API', status: 'error', port: 8317 }); }
-      try { await httpRequest(`${CPA_MGMT}/`); checks.push({ name: 'cpa-manager 管理面板', status: 'ok', port: 18317 }); }
-      catch { checks.push({ name: 'cpa-manager 管理面板', status: 'error', port: 18317 }); }
-      const cpaDocker = dockerExec('docker ps --filter name=CPA --format "{{.Names}}: {{.Status}}"');
-      const mgrDocker = dockerExec('docker ps --filter name=cpa-manager --format "{{.Names}}: {{.Status}}"');
-      checks.push({ name: 'CPA 容器', status: cpaDocker?.includes('Up') ? 'ok' : 'error', detail: cpaDocker });
-      checks.push({ name: 'cpa-manager 容器', status: mgrDocker?.includes('Up') ? 'ok' : 'error', detail: mgrDocker });
-      checks.push({ name: 'CPA 版本', version: getCpaLocalVersion() || 'unknown' });
-      checks.push({ name: 'cpa-manager 版本', version: getMgrLocalVersion() || 'unknown' });
-      try { const res = await httpRequest(`${CPA_BASE}/v1/models`, { headers: { 'Authorization': `Bearer ${CPA_KEY}` } }); checks.push({ name: '可用模型数', count: res?.data?.length || 0 }); } catch {}
+      try {
+        await httpRequest(`${CPA_BASE}/v1/models`, { headers: { 'Authorization': `Bearer ${CPA_KEY}` } });
+        checks.push({ name: 'CPA API (/v1/models)', status: 'ok', port: 8317 });
+      } catch { checks.push({ name: 'CPA API (/v1/models)', status: 'error', port: 8317 }); }
+
+      checks.push({ name: '/healthz', status: healthCheck(8317, 1) ? 'ok' : 'error' });
+
+      const cpaDocker = sh(`docker ps --filter name=${CONTAINER_NAME} --format "{{.Names}}: {{.Status}}"`);
+      checks.push({ name: 'Docker Container', status: cpaDocker?.includes('Up') ? 'ok' : 'error', detail: cpaDocker });
+      checks.push({ name: 'Container Version', version: getContainerVersion() || 'unknown' });
+      checks.push({ name: '.env Version',      version: getLocalVersion()     || 'unknown' });
+      checks.push({ name: 'Deploy Directory',  path: CPA_DEPLOY_DIR, exists: fs.existsSync(CPA_DEPLOY_DIR) });
+
+      try {
+        const res = await httpRequest(`${CPA_BASE}/v1/models`, { headers: { 'Authorization': `Bearer ${CPA_KEY}` } });
+        checks.push({ name: 'Available Models', count: res?.data?.length || 0 });
+      } catch {}
       return checks;
     }
 
     case 'cpa_config': {
       try {
-        const config = dockerExec("docker exec CPA cat /cpa2api/config.yaml 2>/dev/null | sed -E 's/(api-key|secret-key|password|proxy-url):.*/\\1: ***REDACTED***/gi' | head -60");
-        return { config: config || '无法读取配置' };
+        const configPath = `${CPA_DEPLOY_DIR}/config.yaml`;
+        if (!fs.existsSync(configPath)) return { error: `配置文件不存在: ${configPath}` };
+        const config = sh(`sed -E 's/(api-key|secret-key|password|proxy-url|api_key):.*/\\1: ***REDACTED***/gi' "${configPath}" | head -80`);
+        return { config_path: configPath, config: config || '无法读取配置' };
       } catch (e) { return { error: e.message }; }
     }
 
     case 'cpa_upgrade_check': {
-      const result = { cpa: {}, cpa_manager: {} };
-      const cpaLocal = getCpaLocalVersion();
-      const cpaRemote = getCpaRemoteVersion();
-      result.cpa = {
-        local_version: cpaLocal || 'unknown',
-        remote_version: cpaRemote || 'unknown',
-        needs_upgrade: cpaLocal !== cpaRemote,
-        upgrade_available: cpaLocal !== cpaRemote ? `✅ ${cpaLocal} → ${cpaRemote}` : '✅ 已是最新'
+      const localVer  = getLocalVersion();
+      const actualVer = getContainerVersion();
+      const remoteVer = getRemoteVersion();
+      return {
+        env_version:       localVer  || 'unknown',
+        container_version: actualVer || 'unknown',
+        remote_latest:     remoteVer || 'unknown (pull failed)',
+        deploy_dir:        CPA_DEPLOY_DIR,
+        upgrade_hint:      `cd ${CPA_DEPLOY_DIR} && sed -i 's/^CPA_VERSION=.*/CPA_VERSION=vX.X.X/' .env && docker compose pull && docker compose up -d`
       };
-      const mgrLocal = getMgrLocalVersion();
-      const mgrRemote = getMgrRemoteVersion();
-      result.cpa_manager = {
-        local_version: mgrLocal || 'unknown',
-        remote_version: mgrRemote || 'unknown',
-        needs_upgrade: mgrLocal !== mgrRemote,
-        upgrade_available: mgrLocal !== mgrRemote ? `✅ ${mgrLocal} → ${mgrRemote}` : '✅ 已是最新',
-        source: `github.com/${CPA_MGR_REPO}`
-      };
-      return result;
     }
 
     case 'cpa_upgrade': {
-      const component = args?.component || 'all';
-      const dryRun = args?.dry_run || false;
-      const results = [];
-
-      if (component === 'cpa' || component === 'all') {
-        results.push(upgradeCpa(dryRun));
-      }
-      if (component === 'cpa-manager' || component === 'all') {
-        results.push(upgradeMgr(dryRun));
-      }
-
-      // 汇总最终状态
-      const finalStatus = {
-        mode: dryRun ? 'dry-run' : 'execute',
-        results,
-        final_state: {
-          cpa: { version: getCpaLocalVersion(), status: dockerExec('docker ps --filter name=CPA --format "{{.Status}}"') },
-          cpa_manager: { version: getMgrLocalVersion(), status: dockerExec('docker ps --filter name=cpa-manager --format "{{.Status}}"') }
-        }
-      };
-      return finalStatus;
+      const targetVersion = args?.version || null;
+      const dryRun        = args?.dry_run || false;
+      return upgradeCpa(targetVersion, dryRun);
     }
 
     case 'cpa_validate_config': {
       try {
-        const configPath = args?.config_path || '/tmp/cpa-config-check.yaml';
-        if (!args?.config_path) {
-          if (!dockerExec(`docker cp CPA:/cpa2api/config.yaml ${configPath}`)) return { valid: false, error: '无法从容器读取配置' };
-        }
-        const result = execSync(`python3 -c "import yaml; yaml.safe_load(open('${configPath}')); print('YAML_OK')" 2>&1`, { encoding: 'utf-8', timeout: 5000 }).trim();
+        const configPath = args?.config_path || `${CPA_DEPLOY_DIR}/config.yaml`;
+        if (!fs.existsSync(configPath)) return { valid: false, error: `文件不存在: ${configPath}` };
+        const result = execSync(
+          `python3 -c "import yaml; yaml.safe_load(open('${configPath}')); print('YAML_OK')" 2>&1`,
+          { encoding: 'utf-8', timeout: 5000 }
+        ).trim();
         if (result !== 'YAML_OK') return { valid: false, error: `YAML 语法错误: ${result}` };
         const issues = [];
         const content = fs.readFileSync(configPath, 'utf8');
         if (content.includes('openai-compatibility:')) {
-          if (!content.match(/openai-compatibility:\s*\n(\s+-.*)/)) issues.push('openai-compatibility 必须 be 数组格式');
+          if (!content.match(/openai-compatibility:\s*\n(\s+-.*)/)) issues.push('openai-compatibility 必须为数组格式');
         }
-        return { valid: issues.length === 0, issues, message: issues.length === 0 ? '✅ 配置验证通过' : '❌ 配置存在问题' };
+        return { valid: issues.length === 0, config_path: configPath, issues, message: issues.length === 0 ? '✅ 配置验证通过' : '❌ 配置存在问题' };
       } catch (e) { return { valid: false, error: e.message }; }
     }
 
     case 'cpa_containers': {
       try {
-        const raw = dockerExec('docker ps -a --format "{{.Names}}\\t{{.Image}}\\t{{.Status}}\\t{{.Ports}}" | grep -iE "cpa|cpaplus"');
+        const raw = sh(`docker ps -a --format "{{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}" | grep -iE "cpa|cli-proxy"`);
         return (raw || '').split('\n').filter(Boolean).map(l => {
           const [name, image, ...rest] = l.split('\t');
           return { name, image, status: rest.join(' ') };
@@ -542,7 +350,7 @@ rl.on('line', async (line) => {
 
     switch (msg.method) {
       case 'initialize':
-        result = { protocolVersion: '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'cpa2a', version: '2.0.0' } };
+        result = { protocolVersion: '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'cpa2a', version: '2.1.0' } };
         break;
       case 'tools/list':
         result = { tools: TOOLS };

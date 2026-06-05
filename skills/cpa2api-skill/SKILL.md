@@ -281,8 +281,17 @@ To maintain clarity and tracking across the private fork, we use a structured ve
 
 The following versions have been fully validated via E2E regression testing (100% PASS rate) and officially frozen for OpenClaw integration:
 
+- **Backend Engine (CPA2API)**: `v7.2.2-s.5` (Jun 2026) [CURRENT]
+  - **Source Code Path**: `/home/skloxo/aho/openclaw/project/CPA/CPA2API`
+  - **Production Deploy Path**: `/home/skloxo/services/cpa2api/` (independent of source code)
+  - **Staging/Dev Port**: `9317` (cpa2api-dev container, via `docker-compose.dev.yml`)
+  - **Production Port**: `8317` (cli-proxy-api container, via `/home/skloxo/services/cpa2api/docker-compose.yml`)
+  - **Key Change**: Deployment directory fully separated from source code directory.
+    Version controlled via `.env` (`CPA_VERSION=v7.2.2-s.4`). Upgrade = edit `.env` + `docker compose pull && up -d`.
+  - **Verification Status**: E2E regression test PASS.
+
 - **Backend Engine (CPA2API)**: `v7.2.2-s.4` (May 2026) [FROZEN]
-  - **Code Repository Path**: `/home/skloxo/aho/openclaw/project/qwen2api/CPA2API`
+  - **Source Code Path**: `/home/skloxo/aho/openclaw/project/CPA/CPA2API`
   - **Staging/Dev Port**: `9317` (cpa2api-dev container)
   - **Production Port**: `8317` (cli-proxy-api container)
   - **Validated Core Features**:
@@ -292,15 +301,16 @@ The following versions have been fully validated via E2E regression testing (100
   - **Verification Status**: E2E regression test PASS.
 
 - **Frontend Manager (CPA2API-Manager)**: `v1.3.3-s.1` [INTEGRATED]
-  - **Code Repository Path**: `/home/skloxo/aho/openclaw/project/qwen2api/CPA2API-Manager` (Source repository, built and integrated directly into backend)
   - **Staging/Dev Routing**: Port `9317` under `/management.html`
   - **Production Routing**: Port `8317` under `/management.html`
   - **Validated Core Features**: Localized proxy status hints, dynamic model fallback listing.
 
 - **Associated Engineering Walkthroughs & Artifacts**:
-  - **E2E Test Report**: `/home/skloxo/aho/openclaw/project/qwen2api/CPA2API-TEST-REPORT.md`
+  - **Deployment Guide**: `docs/deployment.md` (in source repo)
+  - **Knowledge Center**: `/home/skloxo/aho/openclaw/project/CPA/Readme/`
   - **Historical Walkthrough Logs**: `walkthrough.md` (fully archived)
   - **Archived Tasks list**: `task.md` (100% completed and sealed)
+
 
 ---
 
@@ -309,9 +319,10 @@ The following versions have been fully validated via E2E regression testing (100
 为了指导未来代理及架构师在第二大版本中以极简、高聚合、无痛同步的方式进行迭代，特制定以下开发规程：
 
 #### 🌿 5.1 单仓合并规范 (Monorepo Subtree Protocol)
-*   **规程**：将独立前端仓库 `CPA2API-Manager` 通过 **Git Subtree** 合并至后端仓库的 `web/` 目录中。
-    *   **优点**：主仓库中保留完整的源文件，消除 Submodule 带来的初始化断层，同时可以通过一行 Git 命令拉取上游前端仓库的更新：
-        `git subtree pull --prefix=web/ https://github.com/router-for-me/CLIProxyAPI-Manager.git main --squash`
+*   **规程**：将独立前端仓库 `CPA2API-Manager`（基于 `https://github.com/seakee/CPA-Manager` 仓库代码定制）通过 **Git Subtree** 合并至后端仓库的 `web/` 目录中。
+    *   **上游源限制（重要）**：前端的唯一上游源为 `https://github.com/seakee/CPA-Manager`。**绝对不要**拉取或合并官方仓库 `router-for-me/Cli-Proxy-API-Management-Center` 的前端管理页面代码，以防代码被覆盖或引入错误。
+    *   **优点**：主仓库中保留完整的源文件，消除 Submodule 带来的初始化断层，同时可以通过一行 Git 命令拉取上游前端更新：
+        `git subtree pull --prefix=web/ https://github.com/seakee/CPA-Manager.git main --squash`
 *   **编译输出绑定**：在主项目中新增统一编译脚本。在编译前端时，Vite 的 `viteSingleFile` 插件会将代码压缩为 `web/dist/index.html`。脚本必须将其直接复制到 `CPA2API` 本地的 `static/management.html` 目录中。Gin 后端通过 `/management.html` 路由无缝静态分发该文件，彻底废弃老旧、冗余的旧 UI。
 
 #### 🌿 5.2 极限探针原则 (Empirical Context-Limit Probe Protocol)
