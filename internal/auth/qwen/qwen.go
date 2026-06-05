@@ -84,7 +84,7 @@ func (q *QwenAuth) SignIn(ctx context.Context, email, password, proxyURL string)
 			ProxyURL: strings.TrimSpace(proxyURL),
 		}
 	}
-	httpClient := helps.NewUtlsHTTPClient(q.cfg, authObj, 15*time.Second)
+	httpClient := helps.NewUtlsHTTPClient(ctx, q.cfg, authObj, 15*time.Second)
 
 	resp, err := httpClient.Do(req)
 	if err != nil {

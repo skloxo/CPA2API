@@ -132,7 +132,7 @@ func (e *QwenExecutor) HttpRequest(ctx context.Context, auth *cliproxyauth.Auth,
 		return nil, err
 	}
 	// Use Chrome TLS fingerprint (utls) to bypass proxy TLS inspection for chat.qwen.ai.
-	httpClient := helps.NewUtlsHTTPClient(e.cfg, auth, 0)
+	httpClient := helps.NewUtlsHTTPClient(ctx, e.cfg, auth, 0)
 	return httpClient.Do(httpReq)
 }
 
@@ -241,7 +241,7 @@ func (e *QwenExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, req
 	})
 
 	// Use Chrome TLS fingerprint (utls) to bypass proxy TLS inspection for chat.qwen.ai.
-	httpClient := helps.NewUtlsHTTPClient(e.cfg, auth, 0)
+	httpClient := helps.NewUtlsHTTPClient(ctx, e.cfg, auth, 0)
 	httpResp, err := httpClient.Do(httpReq)
 	if err != nil {
 		helps.RecordAPIResponseError(ctx, e.cfg, err)
@@ -579,7 +579,7 @@ func (e *QwenExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Aut
 	})
 
 	// Use Chrome TLS fingerprint (utls) to bypass proxy TLS inspection for chat.qwen.ai.
-	httpClient := helps.NewUtlsHTTPClient(e.cfg, auth, 0)
+	httpClient := helps.NewUtlsHTTPClient(ctx, e.cfg, auth, 0)
 	httpResp, err := httpClient.Do(httpReq)
 	if err != nil {
 		helps.RecordAPIResponseError(ctx, e.cfg, err)
@@ -869,7 +869,7 @@ func (e *QwenExecutor) createChatID(ctx context.Context, auth *cliproxyauth.Auth
 	qwenauth.ApplyAllQwenHeaders(httpReq, token, cookie, false)
 
 	// Use Chrome TLS fingerprint (utls) to bypass proxy TLS inspection for chat.qwen.ai.
-	httpClient := helps.NewUtlsHTTPClient(e.cfg, auth, 0)
+	httpClient := helps.NewUtlsHTTPClient(ctx, e.cfg, auth, 0)
 	resp, err := httpClient.Do(httpReq)
 	if err != nil {
 		return "", fmt.Errorf("qwen executor: chat creation request failed: %w", err)
