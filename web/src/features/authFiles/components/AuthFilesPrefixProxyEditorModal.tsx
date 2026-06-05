@@ -3,6 +3,7 @@ import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { Input } from '@/components/ui/Input';
+import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
 import type {
   PrefixProxyEditorField,
   PrefixProxyEditorFieldValue,
@@ -126,25 +127,6 @@ export function AuthFilesPrefixProxyEditorModal(props: AuthFilesPrefixProxyEdito
                     disabled={disableControls || editor.saving || !editor.json}
                     onChange={(e) => onChange('prefix', e.target.value)}
                   />
-                  {editor.json.type === 'qwen' && (
-                    <>
-                      <Input
-                        label={t('auth_login.qwen_email_label', { defaultValue: '邮箱' })}
-                        value={editor.email}
-                        disabled={disableControls || editor.saving}
-                        onChange={(e) => onChange('email', e.target.value)}
-                        placeholder={t('auth_login.qwen_email_placeholder', { defaultValue: '邮箱地址' })}
-                      />
-                      <Input
-                        label={t('auth_login.qwen_password_label', { defaultValue: '密码' })}
-                        type="text"
-                        value={editor.password}
-                        disabled={disableControls || editor.saving}
-                        onChange={(e) => onChange('password', e.target.value)}
-                        placeholder={t('auth_login.qwen_password_placeholder', { defaultValue: '密码' })}
-                      />
-                    </>
-                  )}
                   <Input
                     label={t('auth_files.proxy_url_label')}
                     value={editor.proxyUrl}
@@ -160,6 +142,18 @@ export function AuthFilesPrefixProxyEditorModal(props: AuthFilesPrefixProxyEdito
                     disabled={disableControls || editor.saving || !editor.json}
                     onChange={(e) => onChange('priority', e.target.value)}
                   />
+                  {editor.providerKey === 'codex' && (
+                    <div className="form-group">
+                      <label>{t('ai_providers.codex_websockets_label')}</label>
+                      <ToggleSwitch
+                        checked={Boolean(editor.websockets)}
+                        onChange={(value) => onChange('websockets', value)}
+                        disabled={disableControls || editor.saving || !editor.json}
+                        ariaLabel={t('ai_providers.codex_websockets_label')}
+                      />
+                      <div className="hint">{t('ai_providers.codex_websockets_hint')}</div>
+                    </div>
+                  )}
                   <div className="form-group">
                     <label>{t('auth_files.headers_label')}</label>
                     <textarea

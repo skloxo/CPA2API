@@ -10,7 +10,6 @@ FROM --platform=$BUILDPLATFORM golang:1.24-alpine AS service-build
 ARG TARGETOS
 ARG TARGETARCH
 WORKDIR /src
-ENV GOPROXY=https://goproxy.cn,direct
 COPY usage-service ./usage-service
 COPY --from=web-build /app/dist/index.html ./usage-service/internal/httpapi/web/management.html
 WORKDIR /src/usage-service

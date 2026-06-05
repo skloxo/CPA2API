@@ -7,7 +7,6 @@ import {
   IconDownload,
   IconInfo,
   IconModelCluster,
-  IconRefreshCw,
   IconSettings,
   IconTrash2,
 } from '@/components/ui/icons';
@@ -50,7 +49,6 @@ export type AuthFileCardProps = {
   statusBarCache: Map<string, AuthFileStatusBarData>;
   onShowModels: (file: AuthFileItem) => void;
   onDownload: (name: string) => void;
-  onRefreshToken?: (name: string) => void;
   onOpenPrefixProxyEditor: (file: AuthFileItem) => void;
   onDelete: (name: string) => void;
   onToggleStatus: (file: AuthFileItem, enabled: boolean) => void;
@@ -76,7 +74,6 @@ export function AuthFileCard(props: AuthFileCardProps) {
     statusBarCache,
     onShowModels,
     onDownload,
-    onRefreshToken,
     onOpenPrefixProxyEditor,
     onDelete,
     onToggleStatus,
@@ -98,7 +95,6 @@ export function AuthFileCard(props: AuthFileCardProps) {
   const quotaType = resolveQuotaType(file);
   const showQuotaLayout = Boolean(quotaType) && !isRuntimeOnly && !compact;
 
-  const isQwen = providerKey === 'qwen';
   const providerCardClass =
     quotaType === 'antigravity'
       ? styles.antigravityCard
@@ -293,29 +289,16 @@ export function AuthFileCard(props: AuthFileCardProps) {
                   )}
                   {!isRuntimeOnly && (
                     <>
-                      {isQwen && onRefreshToken ? (
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          onClick={() => onRefreshToken(file.name)}
-                          className={styles.iconButton}
-                          title={t('auth_files.refresh_token_button', { defaultValue: '刷新 Token' })}
-                          disabled={disableControls}
-                        >
-                          <IconRefreshCw className={styles.actionIcon} size={16} />
-                        </Button>
-                      ) : (
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          onClick={() => onDownload(file.name)}
-                          className={styles.iconButton}
-                          title={t('auth_files.download_button')}
-                          disabled={disableControls}
-                        >
-                          <IconDownload className={styles.actionIcon} size={16} />
-                        </Button>
-                      )}
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => onDownload(file.name)}
+                        className={styles.iconButton}
+                        title={t('auth_files.download_button')}
+                        disabled={disableControls}
+                      >
+                        <IconDownload className={styles.actionIcon} size={16} />
+                      </Button>
                       <Button
                         variant="secondary"
                         size="sm"

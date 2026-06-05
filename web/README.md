@@ -1,144 +1,442 @@
-# 🖥️ CPA2API-Manager
+# CLI Proxy API Management Center
 
-<div align="center">
+[中文文档](README_CN.md)
 
-**专为 CPA2API 设计的高颜值、企业级智能体网关管理面板与遥测数据看板**
+> **Maintenance status**: CPA-Manager is now in maintenance mode. Future work is limited to security maintenance and bug fixes. For new deployments, feature upgrades, and long-term use, migrate to [CPA Manager Plus](https://github.com/seakee/CPA-Manager-Plus). See the [migration guide](https://github.com/seakee/CPA-Manager-Plus/blob/main/docs/migration-from-cpa-manager.md) when upgrading from this project.
 
-[![React](https://img.shields.io/badge/React-18+-61DAFB?style=for-the-badge&logo=react&logoColor=black)](https://react.dev)
-[![Vite](https://img.shields.io/badge/Vite-5+-646CFF?style=for-the-badge&logo=vite&logoColor=white)](https://vitejs.dev)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5+-3178C6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org)
-[![Docker](https://img.shields.io/badge/Docker-seakee/cpa--manager-blue?style=for-the-badge&logo=docker&logoColor=white)](https://hub.docker.com/r/seakee/cpa-manager)
-[![License](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](LICENSE)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=for-the-badge)](CONTRIBUTING.md)
-[![Version](https://img.shields.io/badge/Version-v1.3.3--s.1-orange?style=for-the-badge)](#)
+A single-file Web UI for **CLI Proxy API (CPA)** plus an optional **Usage Service** for persistent usage analytics.
 
-</div>
+Since v6.10.0, CPA no longer includes built-in usage statistics. This project now supports usage analytics through a long-running Usage Service that consumes the CPA usage queue, persists request events to SQLite, and exposes panel-compatible usage APIs.
 
----
+- **CPA Main project**: https://github.com/router-for-me/CLIProxyAPI
+- **Minimum required CPA version**: >= v7.1.0 (latest recommended)
 
-## 📖 项目简介
+## Panel Preview
 
-**CPA2API-Manager** 是专为 **CPA2API**（OpenAI 兼容智能体代理网关）深度定制的专业级可视化管理面板与高并发遥测数据看板。
+![Account overview table mode showing compact rows, expanded quota details, token structure, and model usage](img/screenshot-20260511-203755.png)
+![Account overview card mode showing health metrics, token usage, Codex quota, and model Top 2 details](img/screenshot-20260511-203905.png)
+![Account overview card grid showing multiple account health and token usage summaries](img/screenshot-20260511-203945.png)
+![Realtime monitoring table showing request status, latency, token usage, and cost](img/screenshot-20260509-105807.png)
+![Codex account inspection progress with live probe logs and cleanup recommendations](img/screenshot-20260509-113713.png)
 
-采用现代前端技术栈（**React 18 + Vite 5 + TypeScript + Vanilla CSS / Tailwind**）倾力打造，CPA2API-Manager 拥有极具奢华感的高级暗黑玻璃拟态（Glassmorphism）交互设计、流畅的响应式微动画，并集成了渠道评分调度、无侵入图形配置编辑器、极致遥测分析以及异构模型重映射回退等功能。
+## What This Provides
 
----
+- A single-file React management panel for CPA Management API (`/v0/management`)
+- A Dockerized Usage Service for SQLite-backed usage persistence
+- Native `amd64` and `arm64` packages for Windows, macOS, and Linux with the panel embedded
+- Two deployment modes:
+  - **Full Docker mode**: open the built-in panel from Usage Service; first setup saves the CPA connection, later logins only need the Management Key
+  - **CPA panel mode**: keep using CPA's `/management.html`, then configure a separately deployed Usage Service inside the panel
+- Runtime monitoring, account/model/channel breakdowns, model pricing, estimated token cost, imports/exports, auth-file operations, quota views, logs, config editing, and system utilities
 
-## ✨ 核心特性
+## Choose a Deployment Mode
 
-*   **📊 实时遥测与数据看板**：内置超低延迟的图表统计，可视化呈现请求吞吐量、首字延迟（TTFT）、调用成功率以及精细化的 Token 计费消耗指标。
-*   **⚖️ 渠道优先级与打分调度**：提供直观的拖拽和数字评分面板，支持多渠道/账号优先级动态配置、轮询权重配比、故障熔断重试等机制，为智能体业务高可用保驾护航。
-*   **⚙️ 本地化可视化配置编辑**：提供安全友好的 JSON/YAML 交互编辑器，支持热重载，无需在 SSH 中手动编辑复杂的 `config.yaml` 即可完成高级路由与过滤器修改。
-*   **🔄 异构模型智能路由与回退**：支持 Gemini/Qwen 等多厂商异构模型的灵活别名注册与智能映射，无缝向后兼容，并在单一上游故障时自动执行平滑降级和灾备回退。
-*   **🎨 奢华现代设计语言**：遵循现代 UI/UX 最佳实践，支持自适应系统暗黑模式、流光渐变边框、柔和毛玻璃滤镜与细腻的悬停反馈，打造极致的高端使用体验。
+| Mode | Entry URL | What the user configures | Best for |
+|---|---|---|---|
+| Full Docker mode | `http://<host>:18317/management.html` | First setup: CPA URL + Management Key; later login: Management Key only | New deployments, one entry point, least browser/CORS complexity |
+| CPA panel mode | `http://<cpa-host>:8317/management.html` | Log in to CPA first, then set the Usage Service URL under **Configuration -> CPA-Manager Configuration** | Existing CPA automatic panel loading |
+| Frontend only | Vite dev server or `dist/index.html` | CPA URL, optionally Usage Service URL | Development |
 
----
+Full Docker mode does not bundle CPA itself. CPA still runs as the upstream service; the Docker image provides the Usage Service plus an embedded copy of this management panel.
 
-## 🏷️ 版本说明
+## CPA Prerequisites
 
-本项目采用清晰的版本控制机制，便于追踪上游变更与本地定制：
-*   **当前版本**：`v1.3.3-s.1`
-    *   **主版本前缀 `v1.3.3`**：代表与主控面板核心功能版本完全对齐。
-    *   **定制后缀 `-s.1`**：代表由 Skloxo 维护的专属定制分支，包含优化的账号优先级调度算法、增强的本地化 UI 编辑以及与 Qwen 自定义标签网关的无缝对接。
+Request statistics require the CPA usage queue:
 
----
+- CPA Management must be enabled because the usage queue uses the same availability and Management Key as `/v0/management`.
+- Request monitoring requires CPA usage publishing: set `usage-statistics-enabled: true`, or submit `{ "value": true }` to `PUT /usage-statistics-enabled`. CPA-Manager enables this automatically when request monitoring is enabled during setup or configuration save.
+- Disabling CPAM request monitoring only stops the Usage Service collector. It does not automatically disable CPA usage publishing or clear the CPA usage queue. If CPA usage publishing remains enabled, re-enabling request monitoring within the queue retention window may collect events retained while the collector was stopped.
+- CPA `v7.1.0+` is recommended. CPA `v6.10.8+` already exposes the HTTP usage queue endpoint `/v0/management/usage-queue`, which can pass through regular HTTP reverse proxies.
+- Older CPA versions use the RESP queue protocol. Usage Service falls back to RESP in `auto` mode only when subscribe and HTTP queue collection are unavailable. RESP listens on the CPA API port, usually `8317`, and cannot pass through a regular HTTP reverse proxy.
+- CPA keeps queue items in memory for `redis-usage-queue-retention-seconds`, default `60` seconds and maximum `3600` seconds. Keep Usage Service running continuously.
+- Usage Service `pollIntervalMs` must be less than or equal to the CPA queue retention window converted to milliseconds. Saves are rejected when the collector would poll too slowly and risk expired queue items.
+- Exactly one Usage Service should consume the same CPA usage queue.
 
-## 🛠️ 本地开发与构建指南
+## Architecture
 
-### 1. 准备开发环境
-确保您的本地已安装 [Node.js](https://nodejs.org) v18+ 并且具备包管理器（如 npm / pnpm / yarn）。
+### Full Docker Mode
 
-### 2. 克隆项目与安装依赖
-```bash
-# 进入前端工作空间目录
-cd /home/skloxo/aho/openclaw/project/CPA/CPA2API/web
-
-# 安装依赖项
-npm install
-```
-
-### 3. 运行本地开发服务器
-```bash
-npm run dev
-```
-开发服务器启动后，通常会在控制台输出：
 ```text
-  VITE v5.x.x  ready in xxx ms
-
-  ➜  Local:   http://localhost:5173/
-  ➜  Network: use --host to expose
+Browser
+  -> Usage Service :18317
+      -> built-in management.html
+      -> /v0/management/usage and /v0/management/model-prices from SQLite
+      -> other /v0/management/* proxied to CPA
+      -> HTTP/RESP consumer -> CPA API port
+      -> SQLite /data/usage.sqlite
 ```
-打开浏览器访问 [http://localhost:5173](http://localhost:5173) 即可实时调试和预览。
 
-### 4. 代码规范检查与格式化
-在提交代码之前，请运行以下指令以保证代码质量符合规范：
+The login page calls `GET /usage-service/info` and detects that it is hosted by Usage Service. If the response is not configured yet, it shows the setup wizard: you enter the CPA URL, Management Key, and choose whether to enable request monitoring. When monitoring is enabled, you also set the collector polling interval; Usage Service validates the CPA Management API, enables CPA usage publishing, checks that the poll interval does not exceed the CPA queue retention window, stores CPA-Manager configuration in SQLite, starts the collector with the configured mode (`auto` by default: subscribe first, HTTP queue second, RESP fallback), and serves the panel from the same origin. When monitoring is disabled, the CPA connection is still saved for Management API proxying, but CPA usage publishing and the collector stay off.
+
+After Usage Service is configured, a new browser opening the same URL uses the normal login form. The user only enters the Management Key; the panel uses the CPA connection saved on the server.
+
+### CPA Panel Mode
+
+```text
+Browser
+  -> CPA /management.html
+      -> normal CPA Management API calls stay on CPA
+      -> usage calls go to configured Usage Service URL
+
+Usage Service
+  -> HTTP/RESP consumer -> CPA API port
+  -> SQLite /data/usage.sqlite
+```
+
+Use this when CPA still auto-downloads and serves the panel. This mode is served by CPA, so it does not show the Usage Service-hosted setup wizard. Request monitoring is optional; when Usage Service is not deployed, the panel hides the request monitoring entry and direct visits to the monitoring page show a setup hint. To use request monitoring, log in to CPA first, deploy Usage Service separately, then open **Configuration -> CPA-Manager Configuration**, enable it, enter the Usage Service URL, and save.
+
+## Quick Start: Full Docker Mode
+
+> For new deployments, use [CPA Manager Plus](https://github.com/seakee/CPA-Manager-Plus). The CPA-Manager deployment steps below are kept for users who still need to maintain existing installations.
+
+### Docker Hub Image
+
 ```bash
-# 运行 ESLint 进行静态代码检查
-npm run lint
-
-# 使用 Prettier 格式化样式与布局
-npm run format
+docker run -d \
+  --name cpa-manager \
+  --restart unless-stopped \
+  -p 18317:18317 \
+  -v cpa-manager-data:/data \
+  seakee/cpa-manager:latest
 ```
 
-### 5. 构建生产包
-当开发完毕需要打包部署时，运行编译脚本：
+Open:
+
+```text
+http://<host>:18317/management.html
+```
+
+On first setup, enter:
+
+- CPA URL:
+  - Docker Desktop host CPA: `http://host.docker.internal:8317` (default suggestion unless the panel was built with `VITE_DEFAULT_CPA_BASE_URL`)
+  - Same compose network: `http://cli-proxy-api:8317`
+  - Remote CPA: `https://your-cpa.example.com`
+- Management Key
+
+After setup, the same entry URL uses the saved CPA connection from Usage Service SQLite. New browsers only need the Management Key on the login page.
+
+The published image supports `linux/amd64` and `linux/arm64`. If your image is published under another Docker Hub namespace, replace `seakee/cpa-manager:latest`.
+
+### Native Packages
+
+GitHub Releases also provide native packages with the panel embedded:
+
+- `cpa-manager_<version>_linux_amd64.tar.gz`
+- `cpa-manager_<version>_linux_arm64.tar.gz`
+- `cpa-manager_<version>_darwin_amd64.tar.gz`
+- `cpa-manager_<version>_darwin_arm64.tar.gz`
+- `cpa-manager_<version>_windows_amd64.zip`
+- `cpa-manager_<version>_windows_arm64.zip`
+
+macOS/Linux:
+
 ```bash
-npm run build
+tar -xzf cpa-manager_vX.Y.Z_linux_amd64.tar.gz
+cd cpa-manager_vX.Y.Z_linux_amd64
+./cpa-manager
 ```
-编译成功后，将在 `dist/` 目录下生成高压缩的静态网页资源，可直接使用 Nginx 进行分发，或嵌入到 Go 后端服务中直接读取。
 
----
+The tar archives preserve execute permissions, so no extra `chmod +x` is normally required after extraction. If macOS blocks the unsigned binary, run `xattr -dr com.apple.quarantine .` in the extracted directory and start it again.
 
-## 📦 Docker 容器部署指南
+Windows PowerShell:
 
-CPA2API-Manager 支持以纯静态模式，或者搭配独立的 Node 服务与 SQLite 数据库实现完整的请求审计遥测。
+```powershell
+Expand-Archive .\cpa-manager_vX.Y.Z_windows_amd64.zip -DestinationPath .
+cd .\cpa-manager_vX.Y.Z_windows_amd64
+.\cpa-manager.exe
+```
 
-### 1. 遥测服务器配置 `docker-compose.usage.yml`
+You can double-click `cpa-manager.exe` on Windows, but PowerShell is recommended because it keeps logs and startup errors visible.
+
+Then open:
+
+```text
+http://<host>:18317/management.html
+```
+
+Native packages do not include CPA itself. Run CPA separately, then enter the CPA URL and Management Key during first setup. After setup, the login page only needs the Management Key. Set `USAGE_DATA_DIR` or `USAGE_DB_PATH` only when you want to override the default data location.
+
+On first start, if `USAGE_DATA_DIR` and `USAGE_DB_PATH` are not set, the native package creates `config.json` next to the binary and writes SQLite data to `data/usage.sqlite` in the same directory. The extracted package directory therefore contains both the program and its user data.
+
+### Docker Compose
+
 ```yaml
-version: '3.8'
-
 services:
   cpa-manager:
-    image: seakee/cpa-manager:v1.3.3-s.1
-    build:
-      context: .
-      dockerfile: Dockerfile.usage-service
+    image: seakee/cpa-manager:latest
     restart: unless-stopped
     ports:
       - "18317:18317"
-    environment:
-      - PORT=18317
-      - DB_PATH=/app/data/usage.db
     volumes:
-      - cpa-manager-data:/app/data
-      - ./usage-service/config:/app/config
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:18317/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+      - cpa-manager-data:/data
 
 volumes:
   cpa-manager-data:
-    external: true
 ```
 
-### 2. 后台启动遥测面板
+Start:
+
 ```bash
-docker compose -f docker-compose.usage.yml up -d
+docker compose up -d
 ```
 
----
+### Linux Host CPA
 
-## 🤝 贡献规范
+If CPA runs directly on a Linux host and Usage Service runs in Docker, add a host gateway:
 
-欢迎提交 Issue 或 Pull Request！我们追求高内聚低耦合的代码设计，并在 [CONTRIBUTING.md](CONTRIBUTING.md) 中详细列出了 React/Vite 组件命名规则、ESLint 校验与 CSS 变量的配置说明，请务必在提交修改前通读。
+```bash
+docker run -d \
+  --name cpa-manager \
+  --restart unless-stopped \
+  --add-host=host.docker.internal:host-gateway \
+  -p 18317:18317 \
+  -v cpa-manager-data:/data \
+  seakee/cpa-manager:latest
+```
 
----
+Then enter `http://host.docker.internal:8317` as the CPA URL during first setup.
 
-## ⚖️ 免责声明
+## Quick Start: CPA Panel Mode
 
-> [!CAUTION]
-> **CPA2API-Manager 仅供学术研究、个人学习以及技术验证目的使用，严禁用于任何商业用途。**
-> 
-> 使用者在使用本软件时，必须自行确保其行为完全符合相关服务提供商的使用条款、服务协议以及当地法律法规。开发人员对于使用者因违规接入、非法调度或滥用所引发的任何账号封禁、系统停机、数据丢失或法律责任均不承担任何连带责任。
+1. Start CPA as usual and open:
+
+   ```text
+   http://<cpa-host>:8317/management.html
+   ```
+
+   Log in to CPA with the CPA Management Key. This entry is served by CPA and does not use the Usage Service setup wizard.
+
+2. Deploy Usage Service:
+
+   ```bash
+   docker run -d \
+     --name cpa-manager \
+     --restart unless-stopped \
+     -p 18317:18317 \
+     -v cpa-manager-data:/data \
+     seakee/cpa-manager:latest
+   ```
+
+3. In the CPA panel, go to:
+
+   ```text
+   Configuration -> CPA-Manager Configuration
+   ```
+
+4. Enable it and enter:
+
+   ```text
+   http://<usage-service-host>:18317
+   ```
+
+5. Save the CPA-Manager configuration.
+
+The panel sends the current CPA URL and Management Key to Usage Service. After that, monitoring reads usage data from Usage Service while other management calls continue to use CPA.
+
+## Build Locally
+
+```bash
+docker compose -f docker-compose.usage.yml up --build
+```
+
+This builds the React panel and embeds it into the Go Usage Service binary.
+
+## Usage Service Configuration
+
+Most users can configure CPA URL, Management Key, request monitoring enablement, collection mode, and polling interval from **Configuration -> CPA-Manager Configuration**. CPA-Manager configuration is persisted in SQLite. Environment variables are mainly for first bootstrap and unattended deployments.
+
+The variables below are Usage Service runtime settings. Frontend build-time settings are separate: `VITE_DEFAULT_CPA_BASE_URL` sets the default CPA URL shown by the Usage Service-hosted first setup wizard. When it is not set, the Docker-hosted panel suggests `http://host.docker.internal:8317`.
+
+| Variable | Default | Description |
+|---|---:|---|
+| `CPA_MANAGER_CONFIG` | empty | Optional config file path. When empty, native packages use `config.json` next to the binary |
+| `HTTP_ADDR` | `0.0.0.0:18317` | Usage Service HTTP listen address |
+| `USAGE_DB_PATH` | Docker: `/data/usage.sqlite`; native: `./data/usage.sqlite` | SQLite database path |
+| `USAGE_DATA_DIR` | Docker: `/data`; native: `./data` | Base data directory when `USAGE_DB_PATH` is not overridden |
+| `CPA_UPSTREAM_URL` | empty | Optional CPA base URL for unattended startup |
+| `CPA_MANAGEMENT_KEY` | empty | Optional CPA Management Key for unattended startup |
+| `CPA_MANAGEMENT_KEY_FILE` | `/run/secrets/cpa_management_key` | Optional file containing the Management Key |
+| `USAGE_COLLECTOR_MODE` | `auto` | Collection mode: `auto` probes Redis Pub/Sub subscribe (CPA v7.0.7+), then HTTP usage queue, then RESP polling; `subscribe` forces Pub/Sub; `http` forces HTTP; `resp` forces RESP polling |
+| `USAGE_RESP_QUEUE` | `usage` | RESP key argument; CPA currently ignores it, leave the default unless upstream changes |
+| `USAGE_RESP_POP_SIDE` | `right` | `right` uses `RPOP`; `left` uses `LPOP` |
+| `USAGE_BATCH_SIZE` | `100` | Maximum queue records per pop |
+| `USAGE_POLL_INTERVAL_MS` | `500` | Idle polling interval |
+| `USAGE_QUERY_LIMIT` | `50000` | Maximum recent events returned through compatible `/usage` |
+| `USAGE_CORS_ORIGINS` | `*` | Allowed browser origins for CPA panel mode |
+| `USAGE_RESP_TLS_SKIP_VERIFY` | `false` | Skip TLS verification for RESP connection |
+| `PANEL_PATH` | empty | Serve a custom `management.html` instead of the embedded one |
+
+Startup configuration precedence is: environment variables > `config.json` > program defaults. Relative paths in the config file are resolved from the config file directory. The generated default config is:
+
+```json
+{
+  "httpAddr": "0.0.0.0:18317",
+  "dataDir": "./data"
+}
+```
+
+If `CPA_UPSTREAM_URL` and `CPA_MANAGEMENT_KEY` are set, collection starts automatically on boot and the connection is shown as environment-managed in the panel. Otherwise, use the web panel setup flow; the result is saved to SQLite `settings.manager_config_v1`. The legacy `settings.setup` value is still written for compatibility and rollback.
+
+### CPA vs CPA-Manager Configuration Boundary
+
+- **CPA configuration**: `usage-statistics-enabled`, `redis-usage-queue-retention-seconds`, proxy, logging, routing, auth files, and related fields still belong to CPA and are managed by `/config` / `/config.yaml`.
+- **CPA-Manager configuration**: CPA URL, Management Key, request monitoring enablement, Usage Service collection mode, `pollIntervalMs`, `batchSize`, `queryLimit`, and the CPA panel mode Usage Service bootstrap URL are persisted in Usage Service SQLite.
+- The configuration panel shows CPA and CPA-Manager settings separately. Saving CPAM settings does not write to CPA `config.yaml`; enabling request monitoring calls CPA Management API to enable usage publishing, while disabling request monitoring only stops the CPAM collector.
+
+### Migration Guide
+
+1. Back up the Usage Service data directory, especially `/data/usage.sqlite`.
+2. After upgrading, open **Configuration -> CPA-Manager Configuration** and verify the CPA URL, request monitoring switch, collection mode, and polling interval. Older stored configs without the switch are treated as monitoring enabled.
+3. If an older version already saved CPA URL and Management Key through `/setup`, the service can read `settings.setup` as a fallback and writes the new `settings.manager_config_v1` structure on the next save.
+4. If you use `CPA_UPSTREAM_URL` / `CPA_MANAGEMENT_KEY`, the connection remains environment-managed. To switch to panel persistence, remove those environment variables, restart, and save from the panel.
+5. In CPA panel mode, the browser still needs the Usage Service URL before it can read that service's SQLite configuration. Once entered, the value is saved to SQLite and kept in local storage as bootstrap data.
+
+## Data and Security Notes
+
+- SQLite data is stored under `/data`; mount it to persistent storage.
+- In full Docker mode, CPA URL and Management Key are stored in the SQLite `settings` table so collection can resume after restart.
+- New versions prefer SQLite `settings.manager_config_v1`; legacy `settings.setup` is kept as compatibility data.
+- Protect the `/data` volume. It contains usage metadata and the saved Management Key.
+- Usage Service redacts key-like fields before storing raw JSON payload snapshots, but request metadata may still expose models, endpoints, account labels, and token usage.
+- RESP queue consumption is pop-based. Do not run multiple Usage Service consumers against the same CPA instance.
+- If Usage Service is down longer than CPA's queue retention window, that period's usage cannot be recovered without CPA-side persistence.
+- If only the CPAM collector is stopped while CPA usage publishing remains enabled, restarting the collector within the retention window may consume queue items produced while collection was disabled.
+
+## Runtime Endpoints
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /health` | Basic health check |
+| `GET /status` | Collector, SQLite, event count, and error status |
+| `GET /usage-service/info` | Allows the frontend to detect full Docker mode and read `configured` for setup vs login flow |
+| `GET /usage-service/config` | Reads persistent CPA-Manager configuration and CPA usage publishing status |
+| `PUT /usage-service/config` | Saves CPA-Manager configuration and restarts the collector when needed |
+| `POST /setup` | Save CPA URL + Management Key and start collection |
+| `GET /v0/management/usage` | Compatible usage payload for the panel |
+| `GET /v0/management/usage/export` | Export usage events as JSONL |
+| `POST /v0/management/usage/import` | Import JSONL usage events or legacy JSON snapshots |
+| `GET /v0/management/model-prices` | Read SQLite-backed model pricing |
+| `PUT /v0/management/model-prices` | Replace saved model pricing |
+| `POST /v0/management/model-prices/sync` | Sync model prices from LiteLLM pricing metadata |
+| `GET /models`, `GET /v1/models` | Proxy model-list requests to CPA after setup |
+| `/v0/management/*` | Proxied to CPA except usage endpoints |
+
+After setup, `/status`, usage, model-pricing, and `/v0/management/*` proxy endpoints require the same Management Key as a Bearer token.
+
+Usage import accepts two file families: JSONL/NDJSON event files exported by Usage Service, and legacy JSON snapshots produced by older CPA `/usage/export`. Legacy JSON can be converted only when `usage.apis.*.models.*.details[]` request details are present. Files that contain only aggregate totals are rejected because request-level monitoring data cannot be reconstructed. Legacy import is a migration/recovery path, not a perfect continuation of newly collected Usage Service data: old files may miss metadata such as `api_key_hash`, channel, request ID, method/path, latency, cache tokens, or failure reason, so account matching, API Key level analysis, and detail accuracy may be lower. Importing legacy files affects totals, trend charts, and account/key breakdowns; use a test or backup database first when accuracy matters.
+
+## Feature Overview
+
+- **Dashboard**: connection state, backend version, quick health summary
+- **Configuration**: visual/source editing for CPA configuration and separate CPA-Manager configuration
+- **AI Providers**: Gemini, Codex, Claude, Vertex, OpenAI-compatible providers, and Ampcode
+- **Auth Files**: upload, download, delete, status, OAuth exclusions, model aliases
+- **Quota**: quota views for supported providers
+- **Request Monitoring**: persisted usage KPIs, model/channel/account breakdowns, model pricing, estimated token cost, failure analysis, realtime tables with a readable source label and one prioritized supplemental detail
+- **Codex Account Inspection**: batch probing and cleanup suggestions for Codex auth pools
+- **Logs**: incremental file log reading and filtering
+- **Management Center Info**: model list, version checks, and local state tools
+
+## Development
+
+Frontend:
+
+```bash
+npm ci
+npm run dev
+npm run type-check
+npm run lint
+npm run build
+```
+
+Open `http://localhost:5173`, then connect to your CLI Proxy API backend instance.
+
+Usage Service:
+
+```bash
+cd usage-service
+go test ./...
+go run ./cmd/cpa-manager
+```
+
+## Build and Release
+
+> Maintenance policy: CPA-Manager no longer plans feature releases. Except for security maintenance and bug fixes, release and upgrade work should move to [CPA Manager Plus](https://github.com/seakee/CPA-Manager-Plus).
+
+- Vite builds a single-file `dist/index.html`.
+- Tagging `vX.Y.Z` triggers `.github/workflows/release.yml`.
+- The release workflow uploads `dist/management.html`, native packages, and `checksums.txt` to GitHub Releases.
+- Native packages are published for `linux`, `darwin`, and `windows` on both `amd64` and `arm64`, with the management panel embedded.
+- The same workflow builds `Dockerfile.usage-service` and pushes `seakee/cpa-manager`.
+- The Docker image is published for `linux/amd64` and `linux/arm64`.
+- The workflow syncs `README.md` to the Docker Hub overview.
+- The UI version shown on the System page is injected at build time, preferring `VERSION`, then git tag, then the `package.json` fallback.
+- Required GitHub secrets:
+  - `DOCKERHUB_USERNAME`
+  - `DOCKERHUB_TOKEN`
+
+Tip: opening `dist/index.html` via `file://` may be blocked by browser CORS; serving it with `npm run preview` or another static server is more reliable.
+
+## Tech Stack
+
+- React 19 + TypeScript 6.0
+- Vite 8 (single-file build)
+- Zustand (state management)
+- Axios (HTTP client)
+- react-router-dom v7 (HashRouter)
+- Motion (animations)
+- CodeMirror 6 (YAML editor)
+- SCSS Modules (styling)
+- i18next (internationalization)
+
+## Internationalization
+
+Currently supports four languages:
+
+- English (en)
+- Simplified Chinese (zh-CN)
+- Traditional Chinese (zh-TW)
+- Russian (ru)
+
+The UI language is automatically detected from browser settings and can be manually switched from the login page or header language menu.
+
+## Browser Compatibility
+
+- Build target: `ES2020`
+- Supports modern browsers (Chrome, Firefox, Safari, Edge)
+- Responsive layout for mobile and tablet access.
+
+## Troubleshooting
+
+- **Cannot connect in full Docker mode**: verify the CPA URL from inside the Usage Service container. For host CPA on Linux, use `--add-host=host.docker.internal:host-gateway`.
+- **Full Docker mode opens the login form instead of setup**: Usage Service is already configured. Enter the saved Management Key; the CPA URL comes from the server-side configuration.
+- **Wrong default CPA URL in first setup**: rebuild the panel with `VITE_DEFAULT_CPA_BASE_URL=<your-cpa-url>` or enter the correct CPA URL manually.
+- **Monitoring is empty**: enable CPA usage publishing, verify Usage Service `/status`, and confirm only one consumer is running.
+- **`unsupported RESP prefix 'H'`**: upgrade CPA to `v7.1.0+` and keep the default `USAGE_COLLECTOR_MODE=auto` so Usage Service can try subscribe and HTTP queue before RESP. On older CPA or forced RESP mode, the CPA URL must be a container/host direct address for port `8317`, not a regular HTTP reverse-proxy domain.
+- **401 from Usage Service**: use the same Management Key that was saved during setup.
+- **Docker panel shows stale data**: check `/status` for `lastConsumedAt`, `lastInsertedAt`, and `lastError`.
+- **CPA panel mode has CORS errors**: set `USAGE_CORS_ORIGINS` to the CPA panel origin or keep the default `*` for private deployments.
+- **Data disappears after container rebuild**: mount `/data` to a Docker volume or host directory.
+- **Detailed FAQ**: see [FAQ and Troubleshooting](https://github.com/seakee/CPA-Manager/wiki/CPA-Manager-FAQ-and-Troubleshooting) or the [Chinese FAQ](https://github.com/seakee/CPA-Manager/wiki/CPA%E2%80%90Manager-%E5%B8%B8%E8%A7%81%E9%97%AE%E9%A2%98%E4%B8%8E%E8%A7%A3%E5%86%B3%E6%96%B9%E6%A1%88).
+
+## References
+
+- CPA Manager Plus: https://github.com/seakee/CPA-Manager-Plus
+- Migration from CPA-Manager to CPA Manager Plus: https://github.com/seakee/CPA-Manager-Plus/blob/main/docs/migration-from-cpa-manager.md
+- CPA-Manager Wiki: https://github.com/seakee/CPA-Manager/wiki
+- Docker deployment guide: https://github.com/seakee/CPA-Manager/wiki/Docker-Deployment
+- Usage Service guide: https://github.com/seakee/CPA-Manager/wiki/CPA%E2%80%90Manager-Usage-Service-Guide
+- Reverse proxy guide: https://github.com/seakee/CPA-Manager/wiki/Reverse-Proxying-CPA-and-CPA%E2%80%90Manager-Under-a-Single-Domain
+- FAQ and troubleshooting: https://github.com/seakee/CPA-Manager/wiki/CPA-Manager-FAQ-and-Troubleshooting
+- CLIProxyAPI: https://github.com/router-for-me/CLIProxyAPI
+- Redis usage queue documentation: https://help.router-for.me/management/redis-usage-queue.html
+
+## Acknowledgements
+
+- Thanks to the upstream projects [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) and [Cli-Proxy-API-Management-Center](https://github.com/router-for-me/Cli-Proxy-API-Management-Center) for the foundation and inspiration.
+- Thanks to the [Linux.do](https://linux.do/) community for project promotion and feedback.
+
+## License
+
+MIT

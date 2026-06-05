@@ -153,18 +153,9 @@ class ApiClient {
       apiError.details = responseData;
       apiError.data = responseData;
 
-      const isRefreshRequest = error.config?.url && /(\/refresh\b|\/qwen-login\b)/.test(error.config.url);
-
-      // 401 Unauthorized - Trigger logout event (only for management key auth errors to prevent upstream errors from logging out)
-      if (error.response?.status === 401 && !isRefreshRequest) {
-        const isManagementKeyError =
-          message === 'invalid management key' ||
-          message === 'missing management key' ||
-          (responseData && typeof responseData === 'object' && 'error' in responseData &&
-            (responseData.error === 'invalid management key' || responseData.error === 'missing management key'));
-        if (isManagementKeyError) {
-          window.dispatchEvent(new Event('unauthorized'));
-        }
+      // 401 未授权 - 触发登出事件
+      if (error.response?.status === 401) {
+        window.dispatchEvent(new Event('unauthorized'));
       }
 
       return apiError;

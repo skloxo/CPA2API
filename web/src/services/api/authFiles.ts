@@ -14,11 +14,10 @@ type AuthFileEntry = AuthFilesResponse['files'][number];
 export type AuthFileFieldsPatch = {
   prefix?: string;
   proxy_url?: string;
+  websockets?: boolean;
   headers?: Record<string, string>;
   priority?: number;
   note?: string;
-  email?: string;
-  password?: string;
 };
 type AuthFileBatchFailure = { name: string; error: string };
 type AuthFileBatchUploadResponse = {
@@ -568,45 +567,12 @@ export const authFilesApi = {
       .trim()
       .toLowerCase();
     if (!normalizedChannel) return [];
-
-    // Fallback list used only when the backend is unreachable or does not know the channel.
-    const staticQwenModels = [
-      { id: 'qwen3.7-max', display_name: 'qwen3.7-max' },
-      { id: 'qwen3.6-plus', display_name: 'qwen3.6-plus' },
-      { id: 'qwen3.5-flash', display_name: 'qwen3.5-flash' },
-      { id: 'qwen-max-latest', display_name: 'qwen-max-latest' },
-      { id: 'qwen-plus-2025-07-28', display_name: 'qwen-plus-2025-07-28' },
-    ];
-
-    try {
-      const data = await apiClient.get<Record<string, unknown>>(
-        `/model-definitions/${encodeURIComponent(normalizedChannel)}`
-      );
-      const models = data.models ?? data['models'];
-      const modelsList = Array.isArray(models)
-        ? (models as { id: string; display_name?: string; type?: string; owned_by?: string }[])
-        : [];
-      // When the catalog update has erased qwen models, fall back to the static list.
-      if (modelsList.length === 0 && normalizedChannel === 'qwen') {
-        return staticQwenModels;
-      }
-      return modelsList;
-    } catch (err: unknown) {
-      const status = getStatusCode(err);
-      const errorMessage = err instanceof Error ? err.message : '';
-      const isUnknownChannel =
-        status === 400 ||
-        errorMessage.toLowerCase().includes('unknown channel');
-
-      // Use static fallback for qwen when the backend does not recognise the channel
-      // (e.g. running an older build that predates qwen support).
-      if (isUnknownChannel && normalizedChannel === 'qwen') {
-        return staticQwenModels;
-      }
-      if (isUnknownChannel) {
-        return [];
-      }
-      throw err;
-    }
+    const data = await apiClient.get<Record<string, unknown>>(
+      `/model-definitions/${encodeURIComponent(normalizedChannel)}`
+    );
+    const models = data.models ?? data['models'];
+    return Array.isArray(models)
+      ? (models as { id: string; display_name?: string; type?: string; owned_by?: string }[])
+      : [];
   },
 };
