@@ -1,4 +1,4 @@
-CPA2API Release v7.2.2-s.5
+CPA2API Release v7.1.45-s.5
 
 This release merges upstream backend and frontend developments, resolving integration conflicts, and providing compilation fixes.
 
