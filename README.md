@@ -8,7 +8,7 @@
 [![Docker Image](https://img.shields.io/badge/Docker-eceasy/cli--proxy--api-blue?style=for-the-badge&logo=docker&logoColor=white)](https://hub.docker.com/r/eceasy/cli-proxy-api)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=for-the-badge)](CONTRIBUTING.md)
-[![Version](https://img.shields.io/badge/Version-v7.2.2--s.4-orange?style=for-the-badge)](#)
+[![Version](https://img.shields.io/badge/Version-v7.2.2--s.5-orange?style=for-the-badge)](#)
 
 </div>
 
@@ -108,7 +108,7 @@ graph TD
 
 本项目采用清晰的版本控制机制，便于追踪上游变更与本地定制：
 *   **格式**：`v[UpstreamVersion]-[SkloxoPatchVersion]`
-*   **示例**：`v7.2.2-s.4`
+*   **示例**：`v7.2.2-s.5`
     *   **前缀 `v7.2.2`**：同步并映射上游 [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) 官方发行版。
     *   **后缀 `-s.1`**：由 Skloxo 维护的专属定制补丁/优化版本（如 Qwen 自定义 XML 标签绕过、高级流式心跳等特性的演进版本）。
 
@@ -161,7 +161,7 @@ version: '3.8'
 
 services:
   cli-proxy-api:
-    image: eceasy/cli-proxy-api:v7.2.2-s.4
+    image: eceasy/cli-proxy-api:v7.2.2-s.5
     container_name: cli-proxy-api
     network_mode: host
     volumes:

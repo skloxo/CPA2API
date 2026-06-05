@@ -287,7 +287,7 @@ The following versions have been fully validated via E2E regression testing (100
   - **Staging/Dev Port**: `9317` (cpa2api-dev container, via `docker-compose.dev.yml`)
   - **Production Port**: `8317` (cli-proxy-api container, via `/home/skloxo/services/cpa2api/docker-compose.yml`)
   - **Key Change**: Deployment directory fully separated from source code directory.
-    Version controlled via `.env` (`CPA_VERSION=v7.2.2-s.4`). Upgrade = edit `.env` + `docker compose pull && up -d`.
+    Version controlled via `.env` (`CPA_VERSION=v7.2.2-s.5`). Upgrade = edit `.env` + `docker compose pull && up -d`.
   - **Verification Status**: E2E regression test PASS.
 
 - **Backend Engine (CPA2API)**: `v7.2.2-s.4` (May 2026) [FROZEN]
@@ -930,7 +930,7 @@ This Standard Operating Procedure (SOP) defines the mandatory lifecycle stages t
     - **NEVER** commit `config.yaml`, `config-dev.yaml`, `auths/*.json`, `*.sqlite`, or `*.log` to Git.
     - Always redact/use fake placeholders (e.g. `sk-xxxx`, `eyJhbGciOi`) for secrets in documents and code comments.
     - Check `git status` and `git diff` before pushing to ensure no sensitive data is leaked.
-*   **Tag Version**: Tag the validated commit with the defined custom patch format (e.g. `v7.2.2-s.4` for backend, `v1.3.3-s.1` for frontend).
+*   **Tag Version**: Tag the validated commit with the defined custom patch format (e.g. `v7.2.2-s.5` for backend, `v1.3.3-s.1` for frontend).
 *   **Push Tags**: Push tags to the upstream repository:
     ```bash
     git push origin <tag_name>
