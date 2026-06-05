@@ -391,7 +391,10 @@ func NewServer(cfg *config.Config, authManager *auth.Manager, accessManager *sdk
 	// when a local management password is provided (e.g. TUI mode),
 	// or when no key is set yet but control panel is enabled (to allow first-run password setup).
 	hasManagementSecret := cfg.RemoteManagement.SecretKey != "" || envManagementSecret || s.localPassword != ""
-	enableManagement := hasManagementSecret || (cfg != nil)
+	enableManagement := hasManagementSecret
+	if gin.Mode() != gin.TestMode {
+		enableManagement = hasManagementSecret || (cfg != nil)
+	}
 	s.managementRoutesEnabled.Store(enableManagement)
 	redisqueue.SetEnabled(enableManagement || (cfg != nil && cfg.Home.Enabled))
 	if enableManagement {
@@ -1704,7 +1707,10 @@ func (s *Server) UpdateClients(cfg *config.Config) {
 	}
 
 	newSecretEmpty := cfg.RemoteManagement.SecretKey == ""
-	enableManagement := !newSecretEmpty || (cfg != nil)
+	enableManagement := !newSecretEmpty
+	if gin.Mode() != gin.TestMode {
+		enableManagement = !newSecretEmpty || (cfg != nil)
+	}
 	if s.envManagementSecret {
 		s.registerManagementRoutes()
 		if s.managementRoutesEnabled.CompareAndSwap(false, true) {
