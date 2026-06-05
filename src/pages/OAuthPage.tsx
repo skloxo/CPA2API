@@ -18,8 +18,6 @@ import iconKimiDark from '@/assets/icons/kimi-dark.svg';
 import iconVertex from '@/assets/icons/vertex.svg';
 import iconGrok from '@/assets/icons/grok.svg';
 import iconGrokDark from '@/assets/icons/grok-dark.svg';
-import iconQwen from '@/assets/icons/qwen.svg';
-import { qwenLoginApi } from '@/services/api/qwen';
 
 interface ProviderState {
   url?: string;
@@ -49,15 +47,6 @@ interface VertexImportState {
   loading: boolean;
   error?: string;
   result?: VertexImportResult;
-}
-
-interface QwenLoginState {
-  email: string;
-  password: string;
-  proxy: string;
-  loading: boolean;
-  status?: 'idle' | 'success' | 'error';
-  error?: string;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -186,7 +175,6 @@ export function OAuthPage() {
   const pollingTimers = useRef<Partial<Record<OAuthProvider, number>>>({});
   const successResetTimers = useRef<Partial<Record<OAuthProvider, number>>>({});
   const vertexFileInputRef = useRef<HTMLInputElement | null>(null);
-  const [qwenState, setQwenState] = useState<QwenLoginState>({ email: '', password: '', proxy: '', loading: false });
 
   const clearTimers = useCallback(() => {
     Object.values(pollingTimers.current).forEach((timer) => {
@@ -420,30 +408,6 @@ export function OAuthPage() {
     event.target.value = '';
   };
 
-  const handleQwenLogin = async () => {
-    const { email, password, proxy } = qwenState;
-    if (!email.trim() || !password.trim()) {
-      showNotification(t('auth_login.qwen_email_password_required'), 'warning');
-      return;
-    }
-    setQwenState((prev) => ({ ...prev, loading: true, status: undefined, error: undefined }));
-    try {
-      await qwenLoginApi.login(email.trim(), password.trim(), proxy.trim() || undefined);
-      setQwenState((prev) => ({ ...prev, loading: false, status: 'success' }));
-      showNotification(t('auth_login.qwen_oauth_status_success'), 'success');
-      setTimeout(() => {
-        navigate('/auth-files');
-      }, 1500);
-    } catch (err: unknown) {
-      const message = getErrorMessage(err);
-      setQwenState((prev) => ({ ...prev, loading: false, status: 'error', error: message }));
-      showNotification(
-        `${t('auth_login.qwen_oauth_status_error')}${message ? ` ${message}` : ''}`,
-        'error'
-      );
-    }
-  };
-
   const handleVertexImport = async () => {
     if (!vertexState.file) {
       const message = t('vertex_import.file_required');
@@ -626,60 +590,6 @@ export function OAuthPage() {
             </div>
           );
         })}
-
-        {/* Qwen 邮箱密码登录 */}
-        <Card
-          title={
-            <span className={styles.cardTitle}>
-              <img src={iconQwen} alt="" className={styles.cardTitleIcon} />
-              {t('auth_login.qwen_oauth_title')}
-            </span>
-          }
-          extra={
-            <Button onClick={handleQwenLogin} loading={qwenState.loading}>
-              {qwenState.status === 'success'
-                ? t('auth_login.login_another_account')
-                : t('auth_login.qwen_oauth_button')}
-            </Button>
-          }
-        >
-          <div className={styles.cardContent}>
-            <div className={styles.cardHint}>{t('auth_login.qwen_oauth_hint')}</div>
-            <Input
-              label={t('auth_login.qwen_email_label')}
-              value={qwenState.email}
-              onChange={(e) => setQwenState((prev) => ({ ...prev, email: e.target.value, status: undefined, error: undefined }))}
-              placeholder={t('auth_login.qwen_email_placeholder')}
-              disabled={qwenState.loading}
-            />
-            <Input
-              label={t('auth_login.qwen_password_label')}
-              type="password"
-              value={qwenState.password}
-              onChange={(e) => setQwenState((prev) => ({ ...prev, password: e.target.value, status: undefined, error: undefined }))}
-              placeholder={t('auth_login.qwen_password_placeholder')}
-              disabled={qwenState.loading}
-            />
-            <Input
-              label={t('auth_login.qwen_proxy_label')}
-              value={qwenState.proxy}
-              onChange={(e) => setQwenState((prev) => ({ ...prev, proxy: e.target.value, status: undefined, error: undefined }))}
-              placeholder={t('auth_login.qwen_proxy_placeholder')}
-              hint={t('auth_login.qwen_proxy_hint')}
-              disabled={qwenState.loading}
-            />
-            {qwenState.status === 'success' && (
-              <div className="status-badge success">
-                {t('auth_login.qwen_oauth_status_success')}
-              </div>
-            )}
-            {qwenState.status === 'error' && (
-              <div className="status-badge error">
-                {t('auth_login.qwen_oauth_status_error')} {qwenState.error || ''}
-              </div>
-            )}
-          </div>
-        </Card>
 
         {/* Vertex JSON 登录 */}
         <Card

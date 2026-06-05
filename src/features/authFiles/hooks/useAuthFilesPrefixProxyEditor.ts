@@ -3,7 +3,12 @@ import { useTranslation } from 'react-i18next';
 import { authFilesApi, type AuthFileFieldsPatch } from '@/services/api';
 import type { AuthFileItem } from '@/types';
 import { useNotificationStore } from '@/stores';
-import { parsePriorityValue } from '@/features/authFiles/constants';
+import {
+  applyCodexAuthFileWebsockets,
+  normalizeProviderKey,
+  parsePriorityValue,
+  readCodexAuthFileWebsockets,
+} from '@/features/authFiles/constants';
 
 type AuthFileHeaders = Record<string, string>;
 type AuthFileHeadersErrorKey =
@@ -14,9 +19,15 @@ type AuthFileContentErrorKey =
   | 'auth_files.prefix_proxy_invalid_json'
   | 'auth_files.prefix_proxy_html_challenge';
 
-export type PrefixProxyEditorField = 'prefix' | 'proxyUrl' | 'priority' | 'note' | 'headersText' | 'email' | 'password';
+export type PrefixProxyEditorField =
+  | 'prefix'
+  | 'proxyUrl'
+  | 'priority'
+  | 'websockets'
+  | 'note'
+  | 'headersText';
 
-export type PrefixProxyEditorFieldValue = string;
+export type PrefixProxyEditorFieldValue = string | boolean;
 
 export type PrefixProxyEditorState = {
   fileName: string;
@@ -28,18 +39,17 @@ export type PrefixProxyEditorState = {
   rawText: string;
   invalidContentPreview: string;
   json: Record<string, unknown> | null;
+  providerKey: string;
   prefix: string;
   proxyUrl: string;
   priority: string;
+  websockets: boolean;
+  websocketsTouched: boolean;
   note: string;
   noteTouched: boolean;
   headersText: string;
   headersTouched: boolean;
   headersError: string | null;
-  email: string;
-  emailTouched: boolean;
-  password: string;
-  passwordTouched: boolean;
 };
 
 export type UseAuthFilesPrefixProxyEditorOptions = {
@@ -246,6 +256,14 @@ const buildAuthFileFieldsPatch = (
     }
   }
 
+  if (editor.providerKey === 'codex' && editor.websocketsTouched) {
+    const originalWebsockets = readCodexAuthFileWebsockets(original);
+    const nextWebsockets = Boolean(editor.websockets);
+    if (nextWebsockets !== originalWebsockets) {
+      patch.websockets = nextWebsockets;
+    }
+  }
+
   if (editor.headersTouched) {
     const { value: parsedHeaders, errorKey } = parseHeadersText(editor.headersText);
     if (errorKey) {
@@ -260,22 +278,6 @@ const buildAuthFileFieldsPatch = (
     }
   }
 
-  if (editor.emailTouched) {
-    const originalEmail = normalizeTextField(original.email);
-    const nextEmail = editor.email.trim();
-    if (nextEmail !== originalEmail) {
-      patch.email = nextEmail;
-    }
-  }
-
-  if (editor.passwordTouched) {
-    const originalPassword = normalizeTextField(original.password);
-    const nextPassword = editor.password;
-    if (nextPassword !== originalPassword) {
-      patch.password = nextPassword;
-    }
-  }
-
   return patch;
 };
 
@@ -285,7 +287,7 @@ const buildPrefixProxyUpdatedText = (
 ): string => {
   if (!editor?.json) return editor?.rawText ?? '';
   const patch = buildAuthFileFieldsPatch(editor, resolveHeadersError);
-  const next: Record<string, unknown> = { ...editor.json };
+  let next: Record<string, unknown> = { ...editor.json };
   if (patch.prefix !== undefined) {
     if (patch.prefix) {
       next.prefix = patch.prefix;
@@ -319,20 +321,8 @@ const buildPrefixProxyUpdatedText = (
 
   applyHeadersPatch(next, patch.headers);
 
-  if (patch.email !== undefined) {
-    if (patch.email) {
-      next.email = patch.email;
-    } else {
-      delete next.email;
-    }
-  }
-
-  if (patch.password !== undefined) {
-    if (patch.password) {
-      next.password = patch.password;
-    } else {
-      delete next.password;
-    }
+  if (patch.websockets !== undefined) {
+    next = applyCodexAuthFileWebsockets(next, patch.websockets);
   }
 
   return JSON.stringify(next);
@@ -368,6 +358,7 @@ export function useAuthFilesPrefixProxyEditor(
 
   const openPrefixProxyEditor = async (file: AuthFileItem) => {
     const name = file.name;
+    const fileProviderKey = normalizeProviderKey(String(file.type ?? file.provider ?? ''));
 
     if (disableControls) return;
     if (prefixProxyEditor?.fileName === name) {
@@ -385,18 +376,17 @@ export function useAuthFilesPrefixProxyEditor(
       rawText: '',
       invalidContentPreview: '',
       json: null,
+      providerKey: fileProviderKey,
       prefix: '',
       proxyUrl: '',
       priority: '',
+      websockets: false,
+      websocketsTouched: false,
       note: '',
       noteTouched: false,
       headersText: '',
       headersTouched: false,
       headersError: null,
-      email: '',
-      emailTouched: false,
-      password: '',
-      passwordTouched: false,
     });
 
     try {
@@ -433,9 +423,11 @@ export function useAuthFilesPrefixProxyEditor(
       const prefix = typeof json.prefix === 'string' ? json.prefix : '';
       const proxyUrl = typeof json.proxy_url === 'string' ? json.proxy_url : '';
       const priority = parsePriorityValue(json.priority);
+      const providerKey = normalizeProviderKey(
+        String(json.type ?? json.provider ?? file.type ?? file.provider ?? '')
+      );
+      const websockets = providerKey === 'codex' ? readCodexAuthFileWebsockets(json) : false;
       const note = typeof json.note === 'string' ? json.note : '';
-      const email = typeof json.email === 'string' ? json.email : '';
-      const password = typeof json.password === 'string' ? json.password : '';
       const headers = json.headers;
       let headersText = '';
       let headersError: string | null = null;
@@ -454,18 +446,17 @@ export function useAuthFilesPrefixProxyEditor(
           rawText: originalText,
           invalidContentPreview: '',
           json,
+          providerKey,
           prefix,
           proxyUrl,
           priority: priority !== undefined ? String(priority) : '',
+          websockets,
+          websocketsTouched: false,
           note,
           noteTouched: false,
           headersText,
           headersTouched: false,
           headersError,
-          email,
-          emailTouched: false,
-          password,
-          passwordTouched: false,
           error: null,
         };
       });
@@ -488,9 +479,10 @@ export function useAuthFilesPrefixProxyEditor(
       if (field === 'prefix') return { ...prev, prefix: String(value) };
       if (field === 'proxyUrl') return { ...prev, proxyUrl: String(value) };
       if (field === 'priority') return { ...prev, priority: String(value) };
+      if (field === 'websockets') {
+        return { ...prev, websockets: Boolean(value), websocketsTouched: true };
+      }
       if (field === 'note') return { ...prev, note: String(value), noteTouched: true };
-      if (field === 'email') return { ...prev, email: String(value), emailTouched: true };
-      if (field === 'password') return { ...prev, password: String(value), passwordTouched: true };
       if (field === 'headersText') {
         const headersText = String(value);
         const { errorKey } = parseHeadersText(headersText);

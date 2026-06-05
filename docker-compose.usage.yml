@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.usage-service
-    image: seakee/cpa-manager:v1.3.3-s.1
+    image: seakee/cpa-manager:latest
     restart: unless-stopped
     ports:
       - "18317:18317"
@@ -27,4 +27,3 @@ services:
 
 volumes:
   cpa-manager-data:
-    external: true

@@ -14,8 +14,8 @@ export interface UsageServiceStoreState {
 export const useUsageServiceStore = create<UsageServiceStoreState>()(
   persist(
     (set) => ({
-      enabled: true,
-      serviceBase: typeof window !== 'undefined' && (window.location.port === '19317' || window.location.port === '9317') ? 'http://localhost:19317' : 'http://localhost:18317',
+      enabled: false,
+      serviceBase: '',
       revision: 0,
       setUsageServiceConfig: ({ enabled, serviceBase }) => {
         set((state) => ({

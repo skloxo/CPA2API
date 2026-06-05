@@ -889,6 +889,26 @@ func (s *Server) handleUsage(w http.ResponseWriter, r *http.Request) {
 			s.handleUsageExport(w, r)
 			return
 		}
+		if strings.HasSuffix(r.URL.Path, "/summary") {
+			s.handleUsageSummary(w, r)
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "/accounts") {
+			s.handleUsageBreakdownPage(w, r, store.UsageBreakdownAccounts)
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "/api-keys") {
+			s.handleUsageBreakdownPage(w, r, store.UsageBreakdownAPIKeys)
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "/realtime") {
+			s.handleUsageBreakdownPage(w, r, store.UsageBreakdownRealtime)
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "/models") {
+			s.handleUsageBreakdownPage(w, r, store.UsageBreakdownModels)
+			return
+		}
 		events, err := s.store.RecentEvents(r.Context(), s.cfg.QueryLimit)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err)
@@ -904,6 +924,104 @@ func (s *Server) handleUsage(w http.ResponseWriter, r *http.Request) {
 	default:
 		methodNotAllowed(w)
 	}
+}
+
+func (s *Server) handleUsageSummary(w http.ResponseWriter, r *http.Request) {
+	filter, err := parseUsageSummaryFilter(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	summary, err := s.store.UsageSummary(r.Context(), filter)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, summary)
+}
+
+func (s *Server) handleUsageBreakdownPage(w http.ResponseWriter, r *http.Request, kind store.UsageBreakdownKind) {
+	filter, err := parseUsageSummaryFilter(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	pageFilter, err := parseUsagePageFilter(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	page, err := s.store.UsageBreakdownPage(r.Context(), kind, filter, pageFilter)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, page)
+}
+
+func parseUsageSummaryFilter(r *http.Request) (store.UsageSummaryFilter, error) {
+	query := r.URL.Query()
+	var filter store.UsageSummaryFilter
+	if raw := strings.TrimSpace(query.Get("start_ms")); raw != "" {
+		value, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil {
+			return filter, fmt.Errorf("invalid start_ms")
+		}
+		filter.StartMS = &value
+	}
+	if raw := strings.TrimSpace(query.Get("end_ms")); raw != "" {
+		value, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil {
+			return filter, fmt.Errorf("invalid end_ms")
+		}
+		filter.EndMS = &value
+	}
+	if filter.StartMS != nil && filter.EndMS != nil && *filter.StartMS > *filter.EndMS {
+		return filter, fmt.Errorf("start_ms must be less than or equal to end_ms")
+	}
+	filter.Account = strings.TrimSpace(query.Get("account"))
+	filter.Provider = strings.TrimSpace(query.Get("provider"))
+	filter.Model = strings.TrimSpace(query.Get("model"))
+	filter.Channel = strings.TrimSpace(query.Get("channel"))
+	filter.APIKeyHash = strings.TrimSpace(query.Get("api_key_hash"))
+	filter.Search = strings.TrimSpace(query.Get("search"))
+	filter.SearchAPIKeyHash = strings.TrimSpace(query.Get("search_api_key_hash"))
+	filter.Status = strings.TrimSpace(query.Get("status"))
+	if filter.Status != "" && filter.Status != "success" && filter.Status != "failed" {
+		return filter, fmt.Errorf("invalid status")
+	}
+	return filter, nil
+}
+
+func parseUsagePageFilter(r *http.Request) (store.UsagePageFilter, error) {
+	query := r.URL.Query()
+	var filter store.UsagePageFilter
+	if raw := strings.TrimSpace(query.Get("page")); raw != "" {
+		value, err := strconv.Atoi(raw)
+		if err != nil || value <= 0 {
+			return filter, fmt.Errorf("invalid page")
+		}
+		filter.Page = value
+	}
+	if raw := strings.TrimSpace(query.Get("page_size")); raw != "" {
+		value, err := strconv.Atoi(raw)
+		if err != nil || value <= 0 {
+			return filter, fmt.Errorf("invalid page_size")
+		}
+		if value > store.MaxUsagePageSize {
+			return filter, fmt.Errorf("page_size must be less than or equal to %d", store.MaxUsagePageSize)
+		}
+		filter.PageSize = value
+	}
+	filter.SortKey = strings.TrimSpace(query.Get("sort_key"))
+	if filter.SortKey != "" && !store.IsUsageSortKey(filter.SortKey) {
+		return filter, fmt.Errorf("invalid sort_key")
+	}
+	filter.SortDirection = strings.TrimSpace(query.Get("sort_direction"))
+	if filter.SortDirection != "" && filter.SortDirection != "asc" && filter.SortDirection != "desc" {
+		return filter, fmt.Errorf("invalid sort_direction")
+	}
+	return filter, nil
 }
 
 func (s *Server) handleUsageExport(w http.ResponseWriter, r *http.Request) {
@@ -1344,39 +1462,6 @@ func validateManagementAPI(ctx context.Context, baseURL string, key string) erro
 		return err
 	}
 	defer res.Body.Close()
-
-	if res.StatusCode == http.StatusForbidden {
-		var errResp struct {
-			Error   string `json:"error"`
-			Message string `json:"message"`
-		}
-		bodyBytes, _ := io.ReadAll(res.Body)
-		if err := json.Unmarshal(bodyBytes, &errResp); err == nil && errResp.Error == "setup_required" {
-			// Auto-setup the backend password with this key!
-			setupPayload := map[string]string{"password": key}
-			jsonBytes, err := json.Marshal(setupPayload)
-			if err != nil {
-				return err
-			}
-			setupReq, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/v0/management/setup", strings.NewReader(string(jsonBytes)))
-			if err != nil {
-				return err
-			}
-			setupReq.Header.Set("Content-Type", "application/json")
-			setupRes, err := client.Do(setupReq)
-			if err != nil {
-				return err
-			}
-			defer setupRes.Body.Close()
-			if setupRes.StatusCode >= 200 && setupRes.StatusCode < 300 {
-				return nil // Setup succeeded, backend is now validated!
-			}
-			return fmt.Errorf("backend auto-setup failed: status %d", setupRes.StatusCode)
-		}
-		// Reset the reader/body to its original state so that it falls back to the ordinary error message
-		res.Body = io.NopCloser(strings.NewReader(string(bodyBytes)))
-	}
-
 	if res.StatusCode >= 200 && res.StatusCode < 300 {
 		return nil
 	}

@@ -58,7 +58,6 @@ import { useAuthFilesModels } from '@/features/authFiles/hooks/useAuthFilesModel
 import { useAuthFilesOauth } from '@/features/authFiles/hooks/useAuthFilesOauth';
 import { useAuthFilesPrefixProxyEditor } from '@/features/authFiles/hooks/useAuthFilesPrefixProxyEditor';
 import { useAuthFilesStatusBarCache } from '@/features/authFiles/hooks/useAuthFilesStatusBarCache';
-import { qwenLoginApi } from '@/services/api/qwen';
 import {
   isAuthFilesViewMode,
   normalizeAuthFilesSortMode,
@@ -280,20 +279,6 @@ export function AuthFilesPage() {
   } = useAuthFilesData();
 
   const statusBarCache = useAuthFilesStatusBarCache(files);
-
-  const handleRefreshToken = useCallback(async (name: string) => {
-    try {
-      await qwenLoginApi.refreshToken(name);
-      showNotification(t('auth_login.qwen_refresh_success', { defaultValue: 'Token 刷新成功' }), 'success');
-      await loadFiles();
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : '';
-      showNotification(
-        `${t('auth_login.qwen_refresh_error', { defaultValue: 'Token 刷新失败' })}${message ? `: ${message}` : ''}`,
-        'error'
-      );
-    }
-  }, [loadFiles, showNotification, t]);
 
   const {
     excluded,
@@ -1066,7 +1051,6 @@ export function AuthFilesPage() {
                     statusBarCache={statusBarCache}
                     onShowModels={showModels}
                     onDownload={handleDownload}
-                    onRefreshToken={handleRefreshToken}
                     onOpenPrefixProxyEditor={openPrefixProxyEditor}
                     onDelete={handleDelete}
                     onToggleStatus={handleStatusToggle}
