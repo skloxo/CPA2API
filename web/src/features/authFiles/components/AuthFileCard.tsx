@@ -88,6 +88,7 @@ export function AuthFileCard(props: AuthFileCardProps) {
   const isRuntimeOnly = isRuntimeOnlyAuthFile(file);
   const providerKey = normalizeProviderKey(String(file.type ?? file.provider ?? 'unknown'));
   const isAistudio = providerKey === 'aistudio';
+  const isQwen = providerKey === 'qwen';
   const showModelsButton = !isRuntimeOnly || isAistudio;
   const typeColor = getTypeColor(providerKey, resolvedTheme);
   const typeLabel = getTypeLabel(t, providerKey);
