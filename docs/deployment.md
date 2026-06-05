@@ -42,7 +42,7 @@ cd /home/skloxo/aho/openclaw/project/CPA/CPA2API
 
 For local testing (port 9317):
 ```bash
-docker compose -f docker-compose.dev.yml up -d
+docker compose -f compose.dev.yml up -d
 ```
 
 ---
@@ -52,15 +52,15 @@ docker compose -f docker-compose.dev.yml up -d
 ### 1. Tag the release in git
 
 ```bash
-git tag v7.2.3
-git push origin v7.2.3
+git tag v7.2.2-s.5
+git push origin v7.2.2-s.5
 ```
 
 ### 2. GitHub Actions builds and pushes the Docker image automatically
 
 The [docker-image.yml](.github/workflows/docker-image.yml) workflow triggers on any `v*` tag and:
 - Builds images for `linux/amd64` and `linux/arm64`
-- Pushes to DockerHub as `eceasy/cli-proxy-api:v7.2.3` and `eceasy/cli-proxy-api:latest`
+- Pushes to DockerHub as `eceasy/cli-proxy-api:v7.2.2-s.5` and `eceasy/cli-proxy-api:latest`
 
 Monitor progress at: https://github.com/skloxo/CPA2API/actions
 
@@ -70,7 +70,7 @@ Monitor progress at: https://github.com/skloxo/CPA2API/actions
 cd /home/skloxo/services/cpa2api
 
 # Update version in .env
-sed -i 's/^CPA_VERSION=.*/CPA_VERSION=v7.2.3/' .env
+sed -i 's/^CPA_VERSION=.*/CPA_VERSION=v7.2.2-s.5/' .env
 
 # Pull new image and restart (zero config change, data untouched)
 docker compose pull
@@ -93,7 +93,7 @@ cd /home/<user>/services/cpa2api
 # 2. Create docker-compose.yml  (copy from this repo or paste the content below)
 # 3. Create .env with your version and password
 cat > .env <<EOF
-CPA_VERSION=v7.2.3
+CPA_VERSION=v7.2.2-s.5
 MANAGEMENT_PASSWORD=your-password-here
 EOF
 
