@@ -468,13 +468,15 @@ func (s *Service) rebindExecutors() {
 	auths := s.coreManager.List()
 	reboundCodex := false
 	for _, auth := range auths {
-		if auth != nil && strings.EqualFold(strings.TrimSpace(auth.Provider), "codex") {
-			if reboundCodex {
-				continue
+		isCodex := auth != nil && strings.EqualFold(strings.TrimSpace(auth.Provider), "codex")
+		if isCodex {
+			if !reboundCodex {
+				s.ensureExecutorsForAuthWithMode(auth, true)
+				reboundCodex = true
 			}
-			reboundCodex = true
+		} else {
+			s.ensureExecutorsForAuthWithMode(auth, true)
 		}
-		s.ensureExecutorsForAuthWithMode(auth, true)
 		if auth != nil && !auth.Disabled {
 			s.registerModelsForAuth(auth)
 			s.coreManager.ReconcileRegistryModelStates(context.Background(), auth.ID)

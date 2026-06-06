@@ -1,13 +1,10 @@
-CPA2API Release v7.1.45-s.6
+CPA2API Release v7.1.45-s.8
 
-This release fixes a bug in the management panel's check-update version comparison logic.
+This release fixes a bug in model registration when multiple Codex credentials are configured.
 
 ### Key Changes:
 
-- **Web UI Update Check / Version Comparison Bug Fix**:
-  - Refactored `compareVersions` in `SystemPage.tsx` to correctly separate the upstream version prefix from the customized patch suffix (e.g. `-s.x`).
-  - The comparison logic now compares custom patch suffixes first since they represent monotonic custom releases of our fork, and falls back to comparing upstream semver segments if patch versions are equal or either version is missing the patch suffix.
-  - Fixes the issue where a newer custom patch version on GitHub (e.g. `v7.1.45-s.5`) was falsely recognized as "older" than a local dev version with a higher upstream semver (e.g. `v7.2.2-s.4`).
+- **Codex Model Registration Fix**:
+  - Refactored `rebindExecutors` in `sdk/cliproxy/service.go` to ensure that model registration and state reconciliation are not bypassed for subsequent active Codex credentials.
+  - Fixes the issue where custom configured Codex models (e.g., `gpt-5.4-mini` and `gpt-5.5` added via the Web UI manager) were not exposed under `/v1/models` in configurations containing multiple Codex credentials.
 
-- **Full Backward Compatibility**:
-  - Maintained full compatibility with existing configurations, loaded Qwen credentials, and usage statistics.
