@@ -153,6 +153,29 @@ func (f *fallbackRoundTripper) RoundTrip(req *http.Request) (*http.Response, err
 	return f.fallback.RoundTrip(req)
 }
 
+var (
+	utlsRTsMu sync.RWMutex
+	utlsRTs   = make(map[string]*utlsRoundTripper)
+)
+
+func getUtlsRoundTripper(proxyURL string) *utlsRoundTripper {
+	utlsRTsMu.RLock()
+	rt, ok := utlsRTs[proxyURL]
+	utlsRTsMu.RUnlock()
+	if ok {
+		return rt
+	}
+
+	utlsRTsMu.Lock()
+	defer utlsRTsMu.Unlock()
+	if rt, ok = utlsRTs[proxyURL]; ok {
+		return rt
+	}
+	rt = newUtlsRoundTripper(proxyURL)
+	utlsRTs[proxyURL] = rt
+	return rt
+}
+
 // NewUtlsHTTPClient creates an HTTP client using utls Chrome TLS fingerprint.
 // Use this for provider requests that need a Chrome-like TLS fingerprint.
 // Falls back to standard transport for non-HTTPS requests.
@@ -170,10 +193,10 @@ func NewUtlsHTTPClient(ctx context.Context, cfg *config.Config, auth *cliproxyau
 		ctxRoundTripper, _ = ctx.Value("cliproxy.roundtripper").(http.RoundTripper)
 	}
 
-	var utlsRT http.RoundTripper = newUtlsRoundTripper(proxyURL)
+	var utlsRT http.RoundTripper = getUtlsRoundTripper(proxyURL)
 	var standardTransport http.RoundTripper = http.DefaultTransport
 	if proxyURL != "" {
-		if transport := buildProxyTransport(proxyURL); transport != nil {
+		if transport := getProxyTransport(proxyURL); transport != nil {
 			standardTransport = transport
 		}
 	} else if ctxRoundTripper != nil {
