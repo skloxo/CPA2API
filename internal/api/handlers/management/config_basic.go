@@ -1,11 +1,17 @@
 package management
 
 import (
+	"archive/tar"
+	"archive/zip"
+	"bytes"
+	"compress/gzip"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -328,4 +334,310 @@ func (h *Handler) PutProxyURL(c *gin.Context) {
 func (h *Handler) DeleteProxyURL(c *gin.Context) {
 	h.cfg.ProxyURL = ""
 	h.persist(c)
+}
+
+type gitHubAsset struct {
+	Name               string `json:"name"`
+	BrowserDownloadURL string `json:"browser_download_url"`
+}
+
+type gitHubRelease struct {
+	TagName string        `json:"tag_name"`
+	Name    string        `json:"name"`
+	Assets  []gitHubAsset `json:"assets"`
+}
+
+func matchAsset(assets []gitHubAsset, goos, goarch string) (string, string) {
+	archStr := goarch
+	if goarch == "arm64" {
+		archStr = "aarch64"
+	}
+
+	expectedExt := ".tar.gz"
+	if goos == "windows" {
+		expectedExt = ".zip"
+	}
+
+	for _, asset := range assets {
+		nameLower := strings.ToLower(asset.Name)
+		if strings.Contains(nameLower, strings.ToLower(goos)) &&
+			strings.Contains(nameLower, strings.ToLower(archStr)) &&
+			strings.HasSuffix(nameLower, expectedExt) {
+			return asset.BrowserDownloadURL, asset.Name
+		}
+	}
+	return "", ""
+}
+
+func extractZipBinary(zipData []byte) ([]byte, error) {
+	r, errReader := zip.NewReader(bytes.NewReader(zipData), int64(len(zipData)))
+	if errReader != nil {
+		return nil, errReader
+	}
+	for _, f := range r.File {
+		name := strings.ToLower(f.Name)
+		base := filepath.Base(name)
+		if base == "cli-proxy-api" || base == "cli-proxy-api.exe" {
+			rc, errOpen := f.Open()
+			if errOpen != nil {
+				return nil, errOpen
+			}
+			defer func() {
+				if errClose := rc.Close(); errClose != nil {
+					log.WithError(errClose).Warn("failed to close zip file reader")
+				}
+			}()
+			return io.ReadAll(rc)
+		}
+	}
+	return nil, fmt.Errorf("binary not found in zip archive")
+}
+
+func extractTarGzBinary(tarGzData []byte) ([]byte, error) {
+	gr, errGzip := gzip.NewReader(bytes.NewReader(tarGzData))
+	if errGzip != nil {
+		return nil, errGzip
+	}
+	defer func() {
+		if errClose := gr.Close(); errClose != nil {
+			log.WithError(errClose).Warn("failed to close gzip reader")
+		}
+	}()
+
+	tr := tar.NewReader(gr)
+	for {
+		hdr, errTar := tr.Next()
+		if errTar == io.EOF {
+			break
+		}
+		if errTar != nil {
+			return nil, errTar
+		}
+		name := strings.ToLower(hdr.Name)
+		base := filepath.Base(name)
+		if base == "cli-proxy-api" || base == "cli-proxy-api.exe" {
+			return io.ReadAll(tr)
+		}
+	}
+	return nil, fmt.Errorf("binary not found in tar.gz archive")
+}
+
+// UpgradeVersion handles downloading the latest release binary, updating the local binary,
+// updating .env file (if it exists), and restarting.
+func (h *Handler) UpgradeVersion(c *gin.Context) {
+	client := &http.Client{Timeout: 60 * time.Second}
+	proxyURL := ""
+	h.mu.Lock()
+	if h.cfg != nil {
+		proxyURL = strings.TrimSpace(h.cfg.ProxyURL)
+	}
+	h.mu.Unlock()
+	if proxyURL != "" {
+		sdkCfg := &sdkconfig.SDKConfig{ProxyURL: proxyURL}
+		util.SetProxy(sdkCfg, client)
+	}
+
+	// 1. Fetch latest release info
+	req, errReq := http.NewRequestWithContext(c.Request.Context(), http.MethodGet, latestReleaseURL, nil)
+	if errReq != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "request_create_failed", "message": errReq.Error()})
+		return
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("User-Agent", latestReleaseUserAgent)
+
+	resp, errResp := client.Do(req)
+	if errResp != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "request_failed", "message": errResp.Error()})
+		return
+	}
+	defer func() {
+		if errClose := resp.Body.Close(); errClose != nil {
+			log.WithError(errClose).Debug("failed to close latest version response body")
+		}
+	}()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		c.JSON(http.StatusBadGateway, gin.H{"error": "unexpected_status", "message": fmt.Sprintf("status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))})
+		return
+	}
+
+	var release gitHubRelease
+	if errDecode := json.NewDecoder(resp.Body).Decode(&release); errDecode != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "decode_failed", "message": errDecode.Error()})
+		return
+	}
+
+	targetVersion := strings.TrimSpace(release.TagName)
+	if targetVersion == "" {
+		targetVersion = strings.TrimSpace(release.Name)
+	}
+	if targetVersion == "" {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "invalid_response", "message": "missing release version"})
+		return
+	}
+
+	// 2. Find matching asset for GOOS/GOARCH
+	downloadURL, assetName := matchAsset(release.Assets, runtime.GOOS, runtime.GOARCH)
+	if downloadURL == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "no_matching_asset",
+			"message": fmt.Sprintf("No release asset found matching platform: %s_%s", runtime.GOOS, runtime.GOARCH),
+		})
+		return
+	}
+
+	log.Infof("Upgrading: downloading asset %s from %s", assetName, downloadURL)
+
+	// 3. Download the asset
+	reqDownload, errReqDown := http.NewRequestWithContext(c.Request.Context(), http.MethodGet, downloadURL, nil)
+	if errReqDown != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "request_create_failed", "message": errReqDown.Error()})
+		return
+	}
+	reqDownload.Header.Set("User-Agent", latestReleaseUserAgent)
+
+	respDownload, errRespDown := client.Do(reqDownload)
+	if errRespDown != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "download_failed", "message": errRespDown.Error()})
+		return
+	}
+	defer func() {
+		if errClose := respDownload.Body.Close(); errClose != nil {
+			log.WithError(errClose).Debug("failed to close download response body")
+		}
+	}()
+
+	if respDownload.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(respDownload.Body, 1024))
+		c.JSON(http.StatusBadGateway, gin.H{"error": "download_unexpected_status", "message": fmt.Sprintf("status %d: %s", respDownload.StatusCode, strings.TrimSpace(string(body)))})
+		return
+	}
+
+	archiveData, errReadArchive := io.ReadAll(respDownload.Body)
+	if errReadArchive != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "read_failed", "message": errReadArchive.Error()})
+		return
+	}
+
+	// 4. Extract the binary
+	var binaryData []byte
+	var errExtract error
+	if strings.HasSuffix(strings.ToLower(assetName), ".zip") {
+		binaryData, errExtract = extractZipBinary(archiveData)
+	} else {
+		binaryData, errExtract = extractTarGzBinary(archiveData)
+	}
+	if errExtract != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "extraction_failed", "message": errExtract.Error()})
+		return
+	}
+
+	// 5. Replace current running executable
+	execPath, errExecPath := os.Executable()
+	if errExecPath != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "executable_path_failed", "message": errExecPath.Error()})
+		return
+	}
+
+	// On Windows, we need to rename the old executable first before writing the new one.
+	// On Unix, renaming the temp file directly over the target path is atomic and safe.
+	execDir := filepath.Dir(execPath)
+	tmpFile, errTmp := os.CreateTemp(execDir, "cli-proxy-api-upgrade-*")
+	if errTmp != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "temp_file_failed", "message": errTmp.Error()})
+		return
+	}
+	tmpPath := tmpFile.Name()
+
+	defer func() {
+		// Cleanup tmp file if it still exists
+		_ = os.Remove(tmpPath)
+	}()
+
+	if _, errWrite := tmpFile.Write(binaryData); errWrite != nil {
+		_ = tmpFile.Close()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "write_failed", "message": errWrite.Error()})
+		return
+	}
+
+	if errChmod := tmpFile.Chmod(0755); errChmod != nil {
+		_ = tmpFile.Close()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "chmod_failed", "message": errChmod.Error()})
+		return
+	}
+
+	if errClose := tmpFile.Close(); errClose != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "close_failed", "message": errClose.Error()})
+		return
+	}
+
+	if runtime.GOOS == "windows" {
+		oldPath := execPath + ".old"
+		_ = os.Remove(oldPath) // remove previous backup if it exists
+		if errRenameOld := os.Rename(execPath, oldPath); errRenameOld != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "rename_running_failed", "message": errRenameOld.Error()})
+			return
+		}
+		if errRenameNew := os.Rename(tmpPath, execPath); errRenameNew != nil {
+			// rollback rename
+			_ = os.Rename(oldPath, execPath)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "rename_new_failed", "message": errRenameNew.Error()})
+			return
+		}
+	} else {
+		if errRename := os.Rename(tmpPath, execPath); errRename != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "replace_failed", "message": errRename.Error()})
+			return
+		}
+	}
+
+	// 6. Automatically update host .env file if mounted at /app/.env or present locally
+	envPath := "/app/.env"
+	if _, errStat := os.Stat(envPath); os.IsNotExist(errStat) {
+		// Fallback to local .env in current working directory if not in docker
+		envPath = ".env"
+	}
+
+	envUpdated := false
+	if _, errStat := os.Stat(envPath); errStat == nil {
+		envData, errReadEnv := os.ReadFile(envPath)
+		if errReadEnv == nil {
+			lines := strings.Split(string(envData), "\n")
+			for i, line := range lines {
+				trimmedLine := strings.TrimSpace(line)
+				if strings.HasPrefix(trimmedLine, "CPA_VERSION=") {
+					lines[i] = fmt.Sprintf("CPA_VERSION=%s", targetVersion)
+					envUpdated = true
+				}
+			}
+			if envUpdated {
+				newEnvData := []byte(strings.Join(lines, "\n"))
+				// Write directly to preserve inode for Docker bind mount
+				fEnv, errOpenEnv := os.OpenFile(envPath, os.O_WRONLY|os.O_TRUNC, 0644)
+				if errOpenEnv == nil {
+					_, errWriteEnv := fEnv.Write(newEnvData)
+					_ = fEnv.Close()
+					if errWriteEnv == nil {
+						log.Infof("Successfully updated .env file at %s to CPA_VERSION=%s", envPath, targetVersion)
+					}
+				}
+			}
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"ok":          true,
+		"version":     targetVersion,
+		"env_updated": envUpdated,
+		"message":     "Upgrade successful! Server is restarting...",
+	})
+
+	// 7. Restart the process after a short delay
+	go func() {
+		time.Sleep(1 * time.Second)
+		log.Infof("Server exiting to trigger restart for upgrade to %s", targetVersion)
+		os.Exit(0)
+	}()
 }

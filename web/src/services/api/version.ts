@@ -20,6 +20,8 @@ const CPA_MANAGER_LATEST_RELEASE_URL =
 export const versionApi = {
   checkLatest: () => apiClient.get<Record<string, unknown>>('/latest-version'),
 
+  upgrade: () => apiClient.post<Record<string, unknown>>('/upgrade'),
+
   checkManagerLatest: async () => {
     const response = await axios.get<ManagerLatestRelease>(CPA_MANAGER_LATEST_RELEASE_URL, {
       timeout: REQUEST_TIMEOUT_MS,

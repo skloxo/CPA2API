@@ -128,6 +128,8 @@ export function SystemPage() {
     message: string;
   }>();
   const [checkingVersion, setCheckingVersion] = useState(false);
+  const [latestVersion, setLatestVersion] = useState<string | null>(null);
+  const [upgrading, setUpgrading] = useState(false);
 
   const apiKeysCache = useRef<string[]>([]);
 
@@ -267,21 +269,26 @@ export function SystemPage() {
       const comparison = compareVersions(latest, auth.serverVersion);
 
       if (!latest) {
+        setLatestVersion(null);
         showNotification(t('system_info.version_check_error'), 'error');
         return;
       }
 
       if (comparison === null) {
+        setLatestVersion(null);
         showNotification(t('system_info.version_current_missing'), 'warning');
         return;
       }
 
       if (comparison > 0) {
+        setLatestVersion(latest);
         showNotification(t('system_info.version_update_available', { version: latest }), 'warning');
       } else {
+        setLatestVersion(null);
         showNotification(t('system_info.version_is_latest'), 'success');
       }
     } catch (error: unknown) {
+      setLatestVersion(null);
       const message =
         error instanceof Error ? error.message : typeof error === 'string' ? error : '';
       const suffix = message ? `: ${message}` : '';
@@ -290,6 +297,35 @@ export function SystemPage() {
       setCheckingVersion(false);
     }
   }, [auth.serverVersion, showNotification, t]);
+
+  const handleUpgrade = useCallback(() => {
+    if (!latestVersion) return;
+    showConfirmation({
+      title: t('system_info.upgrade_confirm_title', { defaultValue: 'Confirm Upgrade' }),
+      message: t('system_info.upgrade_confirm_msg', {
+        defaultValue: 'The server will download the latest binary from GitHub and restart. If running in Docker, this update is ephemeral unless .env is mounted as /app/.env. Proceed?'
+      }),
+      variant: 'danger',
+      confirmText: t('common.confirm'),
+      onConfirm: async () => {
+        setUpgrading(true);
+        try {
+          const res = await versionApi.upgrade();
+          const msg = (res as { message?: string })?.message || t('system_info.upgrade_success', { defaultValue: 'Upgrade requested successfully! Server is restarting...' });
+          showNotification(msg, 'success');
+          // Wait 5 seconds, then refresh page
+          setTimeout(() => {
+            window.location.reload();
+          }, 5000);
+        } catch (error: unknown) {
+          const message = error instanceof Error ? error.message : typeof error === 'string' ? error : '';
+          const suffix = message ? `: ${message}` : '';
+          showNotification(`${t('system_info.upgrade_failed', { defaultValue: 'Upgrade failed' })}${suffix}`, 'error');
+          setUpgrading(false);
+        }
+      },
+    });
+  }, [latestVersion, showConfirmation, showNotification, t]);
 
   useEffect(() => {
     fetchConfig().catch(() => {
@@ -321,17 +357,33 @@ export function SystemPage() {
               <div className={styles.tileLabel}>{t('footer.api_version')}</div>
               <div className={styles.tileValue}>{apiVersion}</div>
               <div className={styles.tileSub}>
-                <button
-                  type="button"
-                  className={styles.updateButton}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    void handleVersionCheck();
-                  }}
-                  disabled={checkingVersion}
-                >
-                  {checkingVersion ? t('common.loading') : t('system_info.version_check_button')}
-                </button>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <button
+                    type="button"
+                    className={styles.updateButton}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      void handleVersionCheck();
+                    }}
+                    disabled={checkingVersion || upgrading}
+                  >
+                    {checkingVersion ? t('common.loading') : t('system_info.version_check_button')}
+                  </button>
+                  {latestVersion && (
+                    <button
+                      type="button"
+                      className={styles.updateButton}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        handleUpgrade();
+                      }}
+                      disabled={upgrading}
+                      style={{ color: '#f59e0b', textDecoration: 'underline' }}
+                    >
+                      {upgrading ? t('common.loading') : t('system_info.version_upgrade_button')}
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
 
