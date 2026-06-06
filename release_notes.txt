@@ -1,20 +1,13 @@
-CPA2API Release v7.1.45-s.5
+CPA2API Release v7.1.45-s.6
 
-This release merges upstream backend and frontend developments, resolving integration conflicts, and providing compilation fixes.
+This release fixes a bug in the management panel's check-update version comparison logic.
 
 ### Key Changes:
 
-- **Upstream Backend Integration**:
-  - Merged upstream `CLIProxyAPI` updates, including `sanitizeDownstreamWebsocketFallbackRequest` fallback logic.
-  - Adapted custom Qwen signatures and resolved code conflicts cleanly.
-
-- **Upstream Frontend Integration**:
-  - Merged upstream `CPA-Manager` (via subtree `web/`) selective updates.
-  - Incorporated localized UI enhancements, Codex quota support, Grok quota support, and usage polling optimizations.
-
-- **TypeScript & Build Fixes**:
-  - Resolved TS compilation error in control panel `AuthFileCard.tsx`.
-  - Updated compiled management page under `static/management.html`.
+- **Web UI Update Check / Version Comparison Bug Fix**:
+  - Refactored `compareVersions` in `SystemPage.tsx` to correctly separate the upstream version prefix from the customized patch suffix (e.g. `-s.x`).
+  - The comparison logic now compares custom patch suffixes first since they represent monotonic custom releases of our fork, and falls back to comparing upstream semver segments if patch versions are equal or either version is missing the patch suffix.
+  - Fixes the issue where a newer custom patch version on GitHub (e.g. `v7.1.45-s.5`) was falsely recognized as "older" than a local dev version with a higher upstream semver (e.g. `v7.2.2-s.4`).
 
 - **Full Backward Compatibility**:
   - Maintained full compatibility with existing configurations, loaded Qwen credentials, and usage statistics.

@@ -16,7 +16,7 @@ var (
 
 func init() {
 	if Version == "dev" {
-		Version = "v7.1.45-s.5-dev"
+		Version = "v7.1.45-s.6-dev"
 	}
 	if BuildDate == "unknown" {
 		BuildDate = "2026-05-30T08:08:59Z"

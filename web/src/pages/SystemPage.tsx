@@ -41,29 +41,72 @@ const MODEL_CATEGORY_ICONS: Record<string, string | { light: string; dark: strin
   minimax: iconMinimax,
 };
 
-const parseVersionSegments = (version?: string | null) => {
-  if (!version) return null;
-  const cleaned = version.trim().replace(/^v/i, '');
-  if (!cleaned) return null;
-  const parts = cleaned
+interface ParsedVersion {
+  upstream: number[];
+  patch: number | null;
+}
+
+const parseVersion = (versionStr?: string | null): ParsedVersion | null => {
+  if (!versionStr) return null;
+  const trimmed = versionStr.trim();
+  if (!trimmed) return null;
+
+  // Find the custom patch suffix (e.g., -s.5 or -s5)
+  const patchMatch = trimmed.match(/-s\.?(\d+)(?:-|$)/i);
+  let patch: number | null = null;
+  if (patchMatch) {
+    patch = Number.parseInt(patchMatch[1], 10);
+  }
+
+  // Remove the custom patch suffix to extract the upstream part
+  let upstreamStr = trimmed;
+  if (patchMatch) {
+    upstreamStr = trimmed.replace(patchMatch[0], '');
+  }
+
+  // Clean the upstream part
+  const cleanedUpstream = upstreamStr.replace(/^v/i, '');
+  const upstream = cleanedUpstream
     .split(/[^0-9]+/)
     .filter(Boolean)
     .map((segment) => Number.parseInt(segment, 10))
     .filter(Number.isFinite);
-  return parts.length ? parts : null;
+
+  return {
+    upstream: upstream.length ? upstream : [0],
+    patch,
+  };
 };
 
 const compareVersions = (latest?: string | null, current?: string | null) => {
-  const latestParts = parseVersionSegments(latest);
-  const currentParts = parseVersionSegments(current);
-  if (!latestParts || !currentParts) return null;
-  const length = Math.max(latestParts.length, currentParts.length);
-  for (let i = 0; i < length; i++) {
-    const l = latestParts[i] || 0;
-    const c = currentParts[i] || 0;
+  const latestParsed = parseVersion(latest);
+  const currentParsed = parseVersion(current);
+  if (!latestParsed || !currentParsed) return null;
+
+  // 1. If both have patch versions, compare patch versions first (our monotonic release counter)
+  if (latestParsed.patch !== null && currentParsed.patch !== null) {
+    if (latestParsed.patch > currentParsed.patch) return 1;
+    if (latestParsed.patch < currentParsed.patch) return -1;
+    // If patch versions are equal, fall through to upstream semver comparison
+  }
+
+  // 2. Compare upstream semver segments
+  const len = Math.max(latestParsed.upstream.length, currentParsed.upstream.length);
+  for (let i = 0; i < len; i++) {
+    const l = latestParsed.upstream[i] || 0;
+    const c = currentParsed.upstream[i] || 0;
     if (l > c) return 1;
     if (l < c) return -1;
   }
+
+  // 3. If upstream segments are equal, but patch presence differs
+  if (latestParsed.patch !== null && currentParsed.patch === null) {
+    return 1;
+  }
+  if (latestParsed.patch === null && currentParsed.patch !== null) {
+    return -1;
+  }
+
   return 0;
 };
 
