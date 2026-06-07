@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/runtime/geminicli"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
@@ -19,6 +20,8 @@ import (
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 )
+
+var InternalBypassToken = uuid.New().String()
 
 const defaultAPICallTimeout = 60 * time.Second
 
@@ -185,6 +188,11 @@ func (h *Handler) APICall(c *gin.Context) {
 	if hostOverride != "" {
 		req.Host = hostOverride
 	}
+
+	if auth != nil {
+		req.Header.Set("X-CPA-Pinned-Auth-Id", auth.ID)
+	}
+	req.Header.Set("X-CPA-Internal-Bypass", InternalBypassToken)
 
 	httpClient := &http.Client{
 		Timeout: defaultAPICallTimeout,

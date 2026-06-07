@@ -17,9 +17,9 @@ import {
 } from '@/components/providers/utils';
 import { usePageTransitionLayer } from '@/components/common/PageTransitionLayer';
 import { useHeaderRefresh } from '@/hooks/useHeaderRefresh';
-import { ampcodeApi, providersApi } from '@/services/api';
+import { ampcodeApi, providersApi, authFilesApi } from '@/services/api';
 import { useAuthStore, useConfigStore, useNotificationStore, useThemeStore } from '@/stores';
-import type { GeminiKeyConfig, OpenAIProviderConfig, ProviderKeyConfig } from '@/types';
+import type { GeminiKeyConfig, OpenAIProviderConfig, ProviderKeyConfig, AuthFileItem } from '@/types';
 import styles from './AiProvidersPage.module.scss';
 
 export function AiProvidersPage() {
@@ -54,6 +54,19 @@ export function AiProvidersPage() {
   const [openaiProviders, setOpenaiProviders] = useState<OpenAIProviderConfig[]>(
     () => config?.openaiCompatibility || []
   );
+  const [qwenCredentials, setQwenCredentials] = useState<AuthFileItem[]>([]);
+
+  const loadQwenCredentials = useCallback(async () => {
+    try {
+      const res = await authFilesApi.list();
+      const filtered = (res.files || []).filter(
+        (file) => String(file.type ?? file.provider ?? '').toLowerCase() === 'qwen'
+      );
+      setQwenCredentials(filtered);
+    } catch (err) {
+      console.error('Failed to load Qwen credentials in provider list', err);
+    }
+  }, []);
 
   const [configSwitchingKey, setConfigSwitchingKey] = useState<string | null>(null);
 
@@ -85,6 +98,7 @@ export function AiProvidersPage() {
         providersApi.getVertexConfigs(),
         ampcodeApi.getAmpcode(),
         providersApi.getOpenAIProviders(),
+        loadQwenCredentials(),
       ]);
 
       if (configResult.status !== 'fulfilled') {
@@ -131,7 +145,8 @@ export function AiProvidersPage() {
   useEffect(() => {
     if (!isCurrentLayer) return;
     void loadRecentRequests().catch(() => {});
-  }, [isCurrentLayer, loadRecentRequests]);
+    void loadQwenCredentials();
+  }, [isCurrentLayer, loadRecentRequests, loadQwenCredentials]);
 
   useEffect(() => {
     if (config?.geminiApiKeys) setGeminiKeys(config.geminiApiKeys);
@@ -480,6 +495,7 @@ export function AiProvidersPage() {
         <div id="provider-openai">
           <OpenAISection
             configs={openaiProviders}
+            qwenCredentials={qwenCredentials}
             usageByProvider={usageByProvider}
             loading={loading}
             disableControls={disableControls}

@@ -47,6 +47,7 @@ type Handler struct {
 	logDir              string
 	postAuthHook        coreauth.PostAuthHook
 	postConfigSaveHook  func()
+	bcryptCache         sync.Map // Cache for validated bcrypt passwords to avoid CPU spikes on polling
 }
 
 // NewHandler creates a new management handler instance.
@@ -110,6 +111,12 @@ func (h *Handler) SetConfig(cfg *config.Config) {
 	h.mu.Lock()
 	h.cfg = cfg
 	h.mu.Unlock()
+
+	// Clear the Bcrypt cache on config reload/change
+	h.bcryptCache.Range(func(key, value any) bool {
+		h.bcryptCache.Delete(key)
+		return true
+	})
 }
 
 // SetAuthManager updates the auth manager reference used by management endpoints.
@@ -302,9 +309,25 @@ func (h *Handler) AuthenticateManagementKey(clientIP string, localClient bool, p
 		return true, 0, ""
 	}
 
+	// Check in-memory Bcrypt cache
+	if secretHash != "" {
+		if expiryVal, ok := h.bcryptCache.Load(provided); ok {
+			if expiry, ok2 := expiryVal.(time.Time); ok2 && time.Now().Before(expiry) {
+				reset()
+				return true, 0, ""
+			}
+			h.bcryptCache.Delete(provided) // Clean up expired entry
+		}
+	}
+
 	if secretHash == "" || bcrypt.CompareHashAndPassword([]byte(secretHash), []byte(provided)) != nil {
 		fail()
 		return false, http.StatusUnauthorized, "invalid management key"
+	}
+
+	// Cache successful authentication for 10 minutes to avoid CPU spikes
+	if secretHash != "" {
+		h.bcryptCache.Store(provided, time.Now().Add(10*time.Minute))
 	}
 
 	reset()

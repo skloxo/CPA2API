@@ -4,11 +4,10 @@ import { useTranslation } from 'react-i18next';
 import {
   IconKey,
   IconBot,
-  IconFileText,
   IconSatellite
 } from '@/components/ui/icons';
 import { useAuthStore, useConfigStore, useModelsStore } from '@/stores';
-import { apiKeysApi, providersApi, authFilesApi } from '@/services/api';
+import { apiKeysApi, providersApi } from '@/services/api';
 import styles from './DashboardPage.module.scss';
 
 interface QuickStat {
@@ -51,10 +50,8 @@ export function DashboardPage() {
 
   const [stats, setStats] = useState<{
     apiKeys: number | null;
-    authFiles: number | null;
   }>({
-    apiKeys: null,
-    authFiles: null
+    apiKeys: null
   });
 
   const [providerStats, setProviderStats] = useState<ProviderStats>({
@@ -151,9 +148,8 @@ export function DashboardPage() {
     const fetchStats = async () => {
       setLoading(true);
       try {
-        const [keysRes, filesRes, geminiRes, codexRes, claudeRes, openaiRes] = await Promise.allSettled([
+        const [keysRes, geminiRes, codexRes, claudeRes, openaiRes] = await Promise.allSettled([
           apiKeysApi.list(),
-          authFilesApi.list(),
           providersApi.getGeminiKeys(),
           providersApi.getCodexConfigs(),
           providersApi.getClaudeConfigs(),
@@ -161,8 +157,7 @@ export function DashboardPage() {
         ]);
 
         setStats({
-          apiKeys: keysRes.status === 'fulfilled' ? keysRes.value.length : null,
-          authFiles: filesRes.status === 'fulfilled' ? filesRes.value.files.length : null
+          apiKeys: keysRes.status === 'fulfilled' ? keysRes.value.length : null
         });
 
         setProviderStats({
@@ -225,14 +220,6 @@ export function DashboardPage() {
             openai: providerStats.openai ?? '-'
           })
         : undefined
-    },
-    {
-      label: t('nav.auth_files'),
-      value: stats.authFiles ?? '-',
-      icon: <IconFileText size={24} />,
-      path: '/auth-files',
-      loading: loading && stats.authFiles === null,
-      sublabel: t('dashboard.oauth_credentials')
     },
     {
       label: t('dashboard.available_models'),

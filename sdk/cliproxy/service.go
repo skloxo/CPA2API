@@ -211,7 +211,7 @@ func (s *Service) handleAuthUpdate(ctx context.Context, update watcher.AuthUpdat
 	default:
 		log.Debugf("received unknown auth update action: %v", update.Action)
 	}
-	s.checkQwenCredentialsCleanup()
+	s.checkQwenCredentialsState()
 }
 
 func (s *Service) ensureWebsocketGateway() {
@@ -482,7 +482,7 @@ func (s *Service) rebindExecutors() {
 			s.coreManager.ReconcileRegistryModelStates(context.Background(), auth.ID)
 		}
 	}
-	s.checkQwenCredentialsCleanup()
+	s.checkQwenCredentialsState()
 }
 
 func (s *Service) applyConfigUpdate(newCfg *config.Config) {
@@ -1222,9 +1222,8 @@ func (s *Service) registerModelsForAuth(a *coreauth.Auth) {
 		models = applyExcludedModels(models, excluded)
 	case "qwen":
 		models = registry.GetDiscoveredModels("qwen")
-		if len(models) == 0 {
-			models = registry.GetQwenModels()
-		}
+		staticModels := registry.GetQwenModels()
+		models = unionQwenModels(models, staticModels)
 		models = applyExcludedModels(models, excluded)
 	case "xai":
 		models = registry.GetXAIModels()
@@ -2084,11 +2083,83 @@ func (s *Service) hasActiveQwenCredentials() bool {
 	return false
 }
 
-func (s *Service) checkQwenCredentialsCleanup() {
+func (s *Service) checkQwenCredentialsState() {
 	if !s.hasActiveQwenCredentials() {
 		disc := executor.GetQwenModelDiscovery(s.cfg)
 		disc.Stop()
 		disc.ClearCredentials()
 		registry.GetGlobalRegistry().UnregisterClient("qwen-dynamic")
+		return
 	}
+
+	var token, cookie, proxyURL string
+	auths := s.coreManager.List()
+	for _, a := range auths {
+		if a != nil && strings.EqualFold(strings.TrimSpace(a.Provider), "qwen") && !a.Disabled {
+			if a.Metadata != nil {
+				if v, ok := a.Metadata["access_token"].(string); ok && strings.TrimSpace(v) != "" {
+					token = v
+				}
+				if v, ok := a.Metadata["cookie"].(string); ok && strings.TrimSpace(v) != "" {
+					cookie = v
+				}
+			}
+			if a.Attributes != nil {
+				if token == "" {
+					if v := a.Attributes["access_token"]; v != "" {
+						token = v
+					}
+				}
+				if token == "" {
+					if v := a.Attributes["api_key"]; v != "" {
+						token = v
+					}
+				}
+				if cookie == "" {
+					if v := a.Attributes["cookie"]; v != "" {
+						cookie = v
+					}
+				}
+			}
+			if token != "" {
+				proxyURL = a.ProxyURL
+				if proxyURL == "" && a.Metadata != nil {
+					if p, ok := a.Metadata["proxy_url"].(string); ok {
+						proxyURL = p
+					} else if p, ok := a.Metadata["proxy"].(string); ok {
+						proxyURL = p
+					}
+				}
+				break
+			}
+		}
+	}
+	if token != "" {
+		disc := executor.GetQwenModelDiscovery(s.cfg)
+		disc.SetCredentials(token, cookie, proxyURL)
+	}
+}
+
+func unionQwenModels(a, b []*registry.ModelInfo) []*registry.ModelInfo {
+	seen := make(map[string]bool)
+	var result []*registry.ModelInfo
+	for _, m := range a {
+		if m != nil && m.ID != "" {
+			key := strings.ToLower(strings.TrimSpace(m.ID))
+			if !seen[key] {
+				seen[key] = true
+				result = append(result, m)
+			}
+		}
+	}
+	for _, m := range b {
+		if m != nil && m.ID != "" {
+			key := strings.ToLower(strings.TrimSpace(m.ID))
+			if !seen[key] {
+				seen[key] = true
+				result = append(result, m)
+			}
+		}
+	}
+	return result
 }

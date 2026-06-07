@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/Input';
 import { SelectionCheckbox } from '@/components/ui/SelectionCheckbox';
 import { SecondaryScreenShell } from '@/components/common/SecondaryScreenShell';
 import { useEdgeSwipeBack } from '@/hooks/useEdgeSwipeBack';
-import { modelsApi } from '@/services/api';
+import { modelsApi, authFilesApi } from '@/services/api';
 import type { ModelInfo } from '@/utils/models';
 import { normalizeAuthIndex } from '@/utils/authIndex';
 import { buildHeaderObject, hasHeader } from '@/utils/headers';
@@ -67,6 +67,17 @@ export function AiProvidersOpenAIModelsPage() {
       setFetching(true);
       setError('');
       try {
+        if (trimmedBaseUrl === 'qwen') {
+          const rawModels = await authFilesApi.getModelDefinitions('qwen');
+          const list: ModelInfo[] = rawModels.map((m) => ({
+            name: m.id,
+            alias: m.display_name || m.id,
+            description: m.owned_by ? `Owned by: ${m.owned_by}` : undefined,
+          }));
+          setModels(list);
+          return;
+        }
+
         const headerObject = buildHeaderObject(form.headers);
         const firstEntry = form.apiKeyEntries.find(
           (entry) => entry.apiKey?.trim() || normalizeAuthIndex(entry.authIndex)
@@ -105,7 +116,11 @@ export function AiProvidersOpenAIModelsPage() {
 
   useEffect(() => {
     if (initialLoading) return;
-    setEndpoint(buildOpenAIModelsEndpoint(form.baseUrl));
+    if (form.baseUrl === 'qwen') {
+      setEndpoint('qwen (通义千问内置模型)');
+    } else {
+      setEndpoint(buildOpenAIModelsEndpoint(form.baseUrl));
+    }
     setModels([]);
     setSearch('');
     setSelected(new Set());

@@ -473,6 +473,11 @@ export const authFilesApi = {
 
   deleteAll: () => apiClient.delete('/auth-files', { params: { all: true } }),
 
+  refresh: (name: string) =>
+    apiClient.post<{ status: string; message: string; email: string }>(
+      `/auth-files/${encodeURIComponent(name)}/refresh`
+    ),
+
   downloadText: async (name: string): Promise<string> => {
     const response = await apiClient.getRaw(
       `/auth-files/download?name=${encodeURIComponent(name)}`,

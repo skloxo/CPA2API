@@ -442,6 +442,7 @@ func (h *Handler) listAuthFilesFromDisk(c *gin.Context) {
 				typeValue := gjson.GetBytes(data, "type").String()
 				emailValue := gjson.GetBytes(data, "email").String()
 				fileData["type"] = typeValue
+				fileData["provider"] = typeValue
 				fileData["email"] = emailValue
 				if projectID := strings.TrimSpace(gjson.GetBytes(data, "project_id").String()); projectID != "" {
 					fileData["project_id"] = projectID

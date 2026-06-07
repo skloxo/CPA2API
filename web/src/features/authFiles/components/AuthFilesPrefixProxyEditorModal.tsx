@@ -9,7 +9,7 @@ import type {
   PrefixProxyEditorFieldValue,
   PrefixProxyEditorState,
 } from '@/features/authFiles/hooks/useAuthFilesPrefixProxyEditor';
-import styles from '@/pages/AuthFilesPage.module.scss';
+import styles from '../authFiles.module.scss';
 
 export type AuthFilesPrefixProxyEditorModalProps = {
   disableControls: boolean;

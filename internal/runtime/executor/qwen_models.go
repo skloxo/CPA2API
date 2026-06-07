@@ -18,6 +18,8 @@ import (
 	qwenauth "github.com/router-for-me/CLIProxyAPI/v7/internal/auth/qwen"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/registry"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/runtime/executor/helps"
+	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -52,6 +54,7 @@ type QwenModelDiscovery struct {
 	cancel     context.CancelFunc
 	token      string
 	cookie     string
+	proxyURL   string
 	running    bool
 	lastModels []*registry.ModelInfo
 }
@@ -81,10 +84,11 @@ func NewQwenModelDiscovery(cfg *config.Config) *QwenModelDiscovery {
 // On the first call with a non-empty token, it automatically triggers
 // model discovery so that the model list is populated without requiring
 // an explicit Start() call.
-func (d *QwenModelDiscovery) SetCredentials(token, cookie string) {
+func (d *QwenModelDiscovery) SetCredentials(token, cookie, proxyURL string) {
 	d.mu.Lock()
 	d.token = token
 	d.cookie = cookie
+	d.proxyURL = proxyURL
 	d.mu.Unlock()
 
 	// Auto-start model discovery on first valid credential
@@ -140,6 +144,7 @@ func (d *QwenModelDiscovery) ClearCredentials() {
 	d.mu.Lock()
 	d.token = ""
 	d.cookie = ""
+	d.proxyURL = ""
 	d.lastModels = nil
 	d.mu.Unlock()
 }
@@ -156,15 +161,21 @@ func (d *QwenModelDiscovery) GetDiscoveredModels() []*registry.ModelInfo {
 	return out
 }
 
+// ForceRefresh forces a synchronous refresh of Qwen models.
+func (d *QwenModelDiscovery) ForceRefresh(ctx context.Context) {
+	d.refreshModels(ctx)
+}
+
 // refreshModels fetches models from Qwen and registers them with the global registry.
 func (d *QwenModelDiscovery) refreshModels(ctx context.Context) {
 	d.mu.Lock()
 	token := d.token
 	cookie := d.cookie
+	proxyURL := d.proxyURL
 	cfg := d.cfg
 	d.mu.Unlock()
 
-	models, err := d.fetchModels(ctx, token, cookie)
+	models, err := d.fetchModels(ctx, token, cookie, proxyURL)
 	if err != nil {
 		log.Warnf("qwen model discovery: fetch failed: %v", err)
 		// If we have previously discovered models, keep them
@@ -318,8 +329,17 @@ func applyQwenModelAlias(cfg *config.Config, models []*registry.ModelInfo) []*re
 }
 
 // fetchModels fetches available models from Qwen's API.
-func (d *QwenModelDiscovery) fetchModels(ctx context.Context, token, cookie string) ([]*registry.ModelInfo, error) {
-	client := &http.Client{Timeout: qwenModelsFetchTimeout}
+func (d *QwenModelDiscovery) fetchModels(ctx context.Context, token, cookie, proxyURL string) ([]*registry.ModelInfo, error) {
+	var client *http.Client
+	if strings.TrimSpace(proxyURL) != "" || (d.cfg != nil && strings.TrimSpace(d.cfg.ProxyURL) != "") {
+		var authObj *cliproxyauth.Auth
+		if strings.TrimSpace(proxyURL) != "" {
+			authObj = &cliproxyauth.Auth{ProxyURL: proxyURL}
+		}
+		client = helps.NewProxyAwareHTTPClient(ctx, d.cfg, authObj, qwenModelsFetchTimeout)
+	} else {
+		client = &http.Client{Timeout: qwenModelsFetchTimeout}
+	}
 
 	reqURL := qwenauth.QwenAPIBaseURL + "/api/models"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)

@@ -11,13 +11,17 @@ import { IconEye, IconEyeOff } from '@/components/ui/icons';
 import { SecondaryScreenShell } from '@/components/common/SecondaryScreenShell';
 import { useEdgeSwipeBack } from '@/hooks/useEdgeSwipeBack';
 import { useNotificationStore } from '@/stores';
-import { apiCallApi, getApiCallErrorMessage } from '@/services/api';
+import { apiCallApi, getApiCallErrorMessage, authFilesApi, apiClient } from '@/services/api';
 import type { ApiKeyEntry } from '@/types';
 import { normalizeAuthIndex } from '@/utils/authIndex';
 import { buildHeaderObject, hasHeader } from '@/utils/headers';
 import { buildApiKeyEntry, buildOpenAIChatCompletionsEndpoint } from '@/components/providers/utils';
 import type { OpenAIEditOutletContext } from './AiProvidersOpenAIEditLayout';
 import type { KeyTestStatus } from '@/stores/useOpenAIEditDraftStore';
+import { Modal } from '@/components/ui/Modal';
+import { AuthFilesPrefixProxyEditorModal } from '@/features/authFiles/components/AuthFilesPrefixProxyEditorModal';
+import { useAuthFilesPrefixProxyEditor } from '@/features/authFiles/hooks/useAuthFilesPrefixProxyEditor';
+import type { AuthFileItem } from '@/types';
 import styles from './AiProvidersPage.module.scss';
 import layoutStyles from './AiProvidersEditLayout.module.scss';
 
@@ -98,7 +102,7 @@ function StatusIcon({ status }: { status: KeyTestStatus['status'] }) {
 export function AiProvidersOpenAIEditPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { showNotification } = useNotificationStore();
+  const { showNotification, showConfirmation } = useNotificationStore();
   const {
     hasIndexParam,
     invalidIndexParam,
@@ -130,6 +134,168 @@ export function AiProvidersOpenAIEditPage() {
   const [isTestingKeys, setIsTestingKeys] = useState(false);
   const [visibleKeyIndexes, setVisibleKeyIndexes] = useState<Set<number>>(new Set());
 
+  // Qwen States & Handlers
+  const [qwenCredentials, setQwenCredentials] = useState<AuthFileItem[]>([]);
+  const [loadingQwen, setLoadingQwen] = useState(false);
+  const [qwenTestStatuses, setQwenTestStatuses] = useState<Record<string, { status: 'idle' | 'loading' | 'success' | 'error', message?: string }>>({});
+  const [isQwenLoginOpen, setIsQwenLoginOpen] = useState(false);
+  const [qwenEmail, setQwenEmail] = useState('');
+  const [qwenPassword, setQwenPassword] = useState('');
+  const [qwenProxy, setQwenProxy] = useState('');
+  const [loggingInQwen, setLoggingInQwen] = useState(false);
+
+  const fetchQwenCredentials = useCallback(async () => {
+    if (form.baseUrl !== 'qwen') return;
+    setLoadingQwen(true);
+    try {
+      const res = await authFilesApi.list();
+      const filtered = (res.files || []).filter(
+        (file) => String(file.type ?? file.provider ?? '').toLowerCase() === 'qwen'
+      );
+      setQwenCredentials(filtered);
+    } catch (err) {
+      console.error('Failed to load Qwen credentials', err);
+      showNotification('加载 Qwen 凭证失败', 'error');
+    } finally {
+      setLoadingQwen(false);
+    }
+  }, [form.baseUrl, showNotification]);
+
+  useEffect(() => {
+    if (form.baseUrl === 'qwen') {
+      void fetchQwenCredentials();
+    }
+  }, [form.baseUrl, fetchQwenCredentials]);
+
+
+  const runQwenCredentialTest = async (file: AuthFileItem) => {
+    const authIndex = file.authIndex || file.auth_index || file.name;
+    setQwenTestStatuses((prev) => ({ ...prev, [file.name]: { status: 'loading' } }));
+
+    const modelName = testModel.trim() || availableModels[0] || 'qwen3.7-max';
+    const endpoint = window.location.origin + '/v1/chat/completions';
+
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer $TOKEN$',
+    };
+
+    try {
+      const result = await apiCallApi.request(
+        {
+          authIndex: String(authIndex),
+          method: 'POST',
+          url: endpoint,
+          header: headers,
+          data: JSON.stringify({
+            model: modelName,
+            messages: [{ role: 'user', content: 'Hi' }],
+            stream: false,
+            max_tokens: 5,
+          }),
+        },
+        { timeout: OPENAI_TEST_TIMEOUT_MS }
+      );
+
+      if (result.statusCode < 200 || result.statusCode >= 300) {
+        throw new Error(getApiCallErrorMessage(result));
+      }
+
+      setQwenTestStatuses((prev) => ({ ...prev, [file.name]: { status: 'success' } }));
+      showNotification(`${file.email || file.name} 测试连接成功`, 'success');
+    } catch (err: unknown) {
+      const message = getErrorMessage(err);
+      setQwenTestStatuses((prev) => ({ ...prev, [file.name]: { status: 'error', message } }));
+      showNotification(`${file.email || file.name} 测试连接失败: ${message}`, 'error');
+    }
+  };
+
+  const handleQwenProxyBlur = async (name: string, value: string) => {
+    try {
+      await authFilesApi.patchFields(name, { proxy_url: value.trim() });
+      showNotification('代理地址已更新', 'success');
+      void fetchQwenCredentials();
+    } catch (err) {
+      showNotification(`保存代理失败: ${getErrorMessage(err)}`, 'error');
+    }
+  };
+
+  const handleQwenRefresh = async (name: string) => {
+    try {
+      showNotification('正在尝试刷新凭证...', 'info');
+      const res = await authFilesApi.refresh(name);
+      if (res.status === 'success') {
+        showNotification('凭证刷新成功！', 'success');
+      } else {
+        showNotification(res.message || '凭证刷新失败', 'error');
+      }
+      void fetchQwenCredentials();
+    } catch (err) {
+      showNotification(`刷新失败: ${getErrorMessage(err)}`, 'error');
+    }
+  };
+
+  const handleQwenDelete = async (name: string) => {
+    showConfirmation({
+      title: '删除 Qwen 凭证',
+      message: '确定要删除该 Qwen 凭证吗？该操作不可撤销。',
+      variant: 'danger',
+      confirmText: t('common.confirm'),
+      onConfirm: async () => {
+        try {
+          await authFilesApi.deleteFileByName(name);
+          showNotification('凭证删除成功', 'success');
+          void fetchQwenCredentials();
+        } catch (err) {
+          showNotification(`删除失败: ${getErrorMessage(err)}`, 'error');
+        }
+      }
+    });
+  };
+
+  const handleQwenLoginSubmit = async () => {
+    if (!qwenEmail.trim() || !qwenPassword.trim()) {
+      showNotification('请输入邮箱和密码', 'error');
+      return;
+    }
+    setLoggingInQwen(true);
+    try {
+      const res = await apiClient.post<{ status: string; email: string }>('/qwen-login', {
+        email: qwenEmail.trim(),
+        password: qwenPassword.trim(),
+        proxy: qwenProxy.trim() || undefined
+      });
+      if (res.status === 'success') {
+        showNotification('登录成功，已自动保存凭证', 'success');
+        setIsQwenLoginOpen(false);
+        setQwenEmail('');
+        setQwenPassword('');
+        setQwenProxy('');
+        void fetchQwenCredentials();
+      } else {
+        showNotification('登录失败', 'error');
+      }
+    } catch (err) {
+      showNotification(`登录失败: ${getErrorMessage(err)}`, 'error');
+    } finally {
+      setLoggingInQwen(false);
+    }
+  };
+
+  // Auth File details editor hook
+  const {
+    prefixProxyEditor,
+    prefixProxyUpdatedText,
+    prefixProxyDirty,
+    openPrefixProxyEditor,
+    closePrefixProxyEditor,
+    handlePrefixProxyChange,
+    handlePrefixProxySave,
+  } = useAuthFilesPrefixProxyEditor({
+    disableControls,
+    loadFiles: fetchQwenCredentials,
+  });
+
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
@@ -141,10 +307,14 @@ export function AiProvidersOpenAIEditPage() {
   }, [handleBack]);
 
   const canSave = !disableControls && !loading && !saving && !invalidIndexParam && !invalidIndex && !isTestingKeys;
-  const hasConfiguredModels = form.modelEntries.some((entry) => entry.name.trim());
-  const hasTestableKeys = form.apiKeyEntries.some(
-    (entry) => entry.apiKey?.trim() || normalizeAuthIndex(entry.authIndex)
-  );
+  const hasConfiguredModels = form.baseUrl === 'qwen'
+    ? true
+    : form.modelEntries.some((entry) => entry.name.trim());
+  const hasTestableKeys = form.baseUrl === 'qwen'
+    ? qwenCredentials.length > 0
+    : form.apiKeyEntries.some(
+        (entry) => entry.apiKey?.trim() || normalizeAuthIndex(entry.authIndex)
+      );
   const modelSelectOptions = useMemo(() => {
     const seen = new Set<string>();
     return form.modelEntries.reduce<Array<{ value: string; label: string }>>((acc, entry) => {
@@ -292,6 +462,98 @@ export function AiProvidersOpenAIEditPage() {
       return;
     }
 
+    if (baseUrl === 'qwen') {
+      if (qwenCredentials.length === 0) {
+        const message = '暂无 Qwen 凭证';
+        setTestStatus('error');
+        setTestMessage(message);
+        showNotification(message, 'error');
+        return;
+      }
+      setIsTestingKeys(true);
+      setTestStatus('loading');
+      setTestMessage('正在测试全部凭证...');
+
+      setQwenTestStatuses((prev) => {
+        const next = { ...prev };
+        qwenCredentials.forEach((file) => {
+          next[file.name] = { status: 'loading' };
+        });
+        return next;
+      });
+
+      const modelName = testModel.trim() || availableModels[0] || 'qwen3.7-max';
+      const endpoint = window.location.origin + '/v1/chat/completions';
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $TOKEN$',
+      };
+
+      try {
+        const results = await Promise.all(
+          qwenCredentials.map(async (file) => {
+            const authIndex = file.authIndex || file.auth_index || file.name;
+            try {
+              const result = await apiCallApi.request(
+                {
+                  authIndex: String(authIndex),
+                  method: 'POST',
+                  url: endpoint,
+                  header: headers,
+                  data: JSON.stringify({
+                    model: modelName,
+                    messages: [{ role: 'user', content: 'Hi' }],
+                    stream: false,
+                    max_tokens: 5,
+                  }),
+                },
+                { timeout: OPENAI_TEST_TIMEOUT_MS }
+              );
+
+              if (result.statusCode < 200 || result.statusCode >= 300) {
+                throw new Error(getApiCallErrorMessage(result));
+              }
+
+              setQwenTestStatuses((prev) => ({ ...prev, [file.name]: { status: 'success' } }));
+              return true;
+            } catch (err: unknown) {
+              const message = getErrorMessage(err);
+              setQwenTestStatuses((prev) => ({ ...prev, [file.name]: { status: 'error', message } }));
+              return false;
+            }
+          })
+        );
+
+        const successCount = results.filter(Boolean).length;
+        const failCount = qwenCredentials.length - successCount;
+
+        if (failCount === 0) {
+          const message = `所有凭证测试连接成功 (共 ${successCount} 个)`;
+          setTestStatus('success');
+          setTestMessage(message);
+          showNotification(message, 'success');
+        } else if (successCount === 0) {
+          const message = `所有凭证测试连接失败 (共 ${failCount} 个)`;
+          setTestStatus('error');
+          setTestMessage(message);
+          showNotification(message, 'error');
+        } else {
+          const message = `部分凭证测试连接成功 (成功 ${successCount} 个，失败 ${failCount} 个)`;
+          setTestStatus('error');
+          setTestMessage(message);
+          showNotification(message, 'warning');
+        }
+      } catch (err) {
+        const message = getErrorMessage(err);
+        setTestStatus('error');
+        setTestMessage(message);
+        showNotification(message, 'error');
+      } finally {
+        setIsTestingKeys(false);
+      }
+      return;
+    }
+
     const endpoint = buildOpenAIChatCompletionsEndpoint(baseUrl);
     if (!endpoint) {
       const message = t('notification.openai_test_url_required');
@@ -363,6 +625,8 @@ export function AiProvidersOpenAIEditPage() {
     resetDraftKeyTestStatuses,
     runSingleKeyTest,
     showNotification,
+    qwenCredentials,
+    setQwenTestStatuses,
   ]);
 
   const openOpenaiModelDiscovery = () => {
@@ -538,6 +802,131 @@ export function AiProvidersOpenAIEditPage() {
     );
   };
 
+  const copyTextWithNotification = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      showNotification(t('notification.link_copied', { defaultValue: '已复制到剪贴板' }), 'success');
+    } catch {
+      showNotification(t('notification.copy_failed', { defaultValue: '复制失败' }), 'error');
+    }
+  };
+
+  const renderQwenCredentialsTable = () => {
+    return (
+      <div className={styles.keyEntriesList}>
+        <div className={styles.keyEntriesToolbar}>
+          <span className={styles.keyEntriesCount}>
+            凭证总数: {qwenCredentials.length}
+          </span>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => setIsQwenLoginOpen(true)}
+            disabled={saving || disableControls || isTestingKeys}
+            className={styles.addKeyButton}
+          >
+            添加 Qwen 凭证
+          </Button>
+        </div>
+        <div className={styles.keyTableShell}>
+          {/* 表头 */}
+          <div className={styles.keyTableHeader}>
+            <div className={styles.keyTableColIndex} style={{ width: '40px' }}>#</div>
+            <div className={styles.keyTableColStatus} style={{ width: '60px' }}>测试状态</div>
+            <div className={styles.keyTableColKey}>账号 (Email)</div>
+            <div className={styles.keyTableColProxy}>账号级代理 (优先走账号代理)</div>
+            <div className={styles.keyTableColAction}>操作</div>
+          </div>
+
+          {/* 数据行 */}
+          {loadingQwen ? (
+            <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-secondary)' }}>
+              加载中...
+            </div>
+          ) : qwenCredentials.length === 0 ? (
+            <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-secondary)' }}>
+              暂无账号凭证，请点击上方“添加 Qwen 凭证”进行添加
+            </div>
+          ) : (
+            qwenCredentials.map((file, index) => {
+              const testStatus = qwenTestStatuses[file.name]?.status ?? 'idle';
+              
+              return (
+                <div key={file.name} className={styles.keyTableRow}>
+                  {/* 序号 */}
+                  <div className={styles.keyTableColIndex} style={{ width: '40px' }}>{index + 1}</div>
+
+                  {/* 测试连接状态灯 */}
+                  <div
+                    className={styles.keyTableColStatus}
+                    style={{ width: '60px' }}
+                    title={qwenTestStatuses[file.name]?.message || ''}
+                  >
+                    <StatusIcon status={testStatus} />
+                  </div>
+
+                  {/* Email */}
+                  <div className={styles.keyTableColKey} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {String(file.email || file.name || '')}
+                  </div>
+
+                  {/* 账号级代理代理输入框 */}
+                  <div className={styles.keyTableColProxy}>
+                    <input
+                      type="text"
+                      defaultValue={String(file.proxy_url ?? file.proxyUrl ?? '')}
+                      onBlur={(e) => void handleQwenProxyBlur(file.name, e.target.value)}
+                      disabled={saving || disableControls}
+                      className={`input ${styles.keyTableInput}`}
+                      placeholder="默认使用全局代理 / 直连"
+                    />
+                  </div>
+
+                  {/* 操作按钮 */}
+                  <div className={styles.keyTableColAction}>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => void runQwenCredentialTest(file)}
+                      disabled={saving || disableControls || isTestingKeys}
+                      loading={testStatus === 'loading'}
+                    >
+                      测试
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => void openPrefixProxyEditor(file)}
+                      disabled={saving || disableControls}
+                    >
+                      详情
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => void handleQwenRefresh(file.name)}
+                      disabled={saving || disableControls}
+                    >
+                      刷新
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => void handleQwenDelete(file.name)}
+                      disabled={saving || disableControls}
+                    >
+                      删除
+                    </Button>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <SecondaryScreenShell
       ref={swipeRef}
@@ -607,23 +996,52 @@ export function AiProvidersOpenAIEditPage() {
               hint={t('ai_providers.prefix_hint')}
               disabled={saving || disableControls || isTestingKeys}
             />
-            <Input
-              label={t('ai_providers.openai_add_modal_url_label')}
-              value={form.baseUrl}
-              onChange={(e) => setForm((prev) => ({ ...prev, baseUrl: e.target.value }))}
-              disabled={saving || disableControls || isTestingKeys}
-            />
+            <div className="form-group">
+              <label>接口类型 / 预设</label>
+              <Select
+                value={form.baseUrl === 'qwen' ? 'qwen' : 'custom'}
+                options={[
+                  { value: 'custom', label: '自定义 OpenAI 兼容接口' },
+                  { value: 'qwen', label: 'Qwen Preset (通义千问网页端 OAuth 模式)' },
+                ]}
+                onChange={(val) => {
+                  if (val === 'qwen') {
+                    setForm((prev) => ({ ...prev, baseUrl: 'qwen' }));
+                  } else {
+                    setForm((prev) => ({ ...prev, baseUrl: '' }));
+                  }
+                }}
+                disabled={saving || disableControls || isTestingKeys}
+              />
+            </div>
 
-            <HeaderInputList
-              entries={form.headers}
-              onChange={(entries) => setForm((prev) => ({ ...prev, headers: entries }))}
-              addLabel={t('common.custom_headers_add')}
-              keyPlaceholder={t('common.custom_headers_key_placeholder')}
-              valuePlaceholder={t('common.custom_headers_value_placeholder')}
-              removeButtonTitle={t('common.delete')}
-              removeButtonAriaLabel={t('common.delete')}
-              disabled={saving || disableControls || isTestingKeys}
-            />
+            {form.baseUrl === 'qwen' ? (
+              <Input
+                label={t('ai_providers.openai_add_modal_url_label')}
+                value="chat.qwen.ai (Qwen OAuth 登录模式)"
+                disabled
+              />
+            ) : (
+              <Input
+                label={t('ai_providers.openai_add_modal_url_label')}
+                value={form.baseUrl}
+                onChange={(e) => setForm((prev) => ({ ...prev, baseUrl: e.target.value }))}
+                disabled={saving || disableControls || isTestingKeys}
+              />
+            )}
+
+            {form.baseUrl !== 'qwen' && (
+              <HeaderInputList
+                entries={form.headers}
+                onChange={(entries) => setForm((prev) => ({ ...prev, headers: entries }))}
+                addLabel={t('common.custom_headers_add')}
+                keyPlaceholder={t('common.custom_headers_key_placeholder')}
+                valuePlaceholder={t('common.custom_headers_value_placeholder')}
+                removeButtonTitle={t('common.delete')}
+                removeButtonAriaLabel={t('common.delete')}
+                disabled={saving || disableControls || isTestingKeys}
+              />
+            )}
 
             {/* 模型配置区域 - 统一布局 */}
             <div className={styles.modelConfigSection}>
@@ -730,14 +1148,94 @@ export function AiProvidersOpenAIEditPage() {
 
             <div className={styles.keyEntriesSection}>
               <div className={styles.keyEntriesHeader}>
-                <label className={styles.keyEntriesTitle}>{t('ai_providers.openai_add_modal_keys_label')}</label>
-                <span className={styles.keyEntriesHint}>{t('ai_providers.openai_keys_hint')}</span>
+                <label className={styles.keyEntriesTitle}>
+                  凭证管理
+                </label>
+                <span className={styles.keyEntriesHint}>
+                  {form.baseUrl === 'qwen'
+                    ? '管理通义千问网页端账号凭证，支持账号级代理、手动刷新等。'
+                    : t('ai_providers.openai_keys_hint')}
+                </span>
               </div>
-              {renderKeyEntries(form.apiKeyEntries)}
+              {form.baseUrl === 'qwen'
+                ? renderQwenCredentialsTable()
+                : renderKeyEntries(form.apiKeyEntries)}
             </div>
           </div>
         )}
       </Card>
+
+      <Modal
+        open={isQwenLoginOpen}
+        title="添加 Qwen 账号凭证"
+        onClose={() => {
+          if (!loggingInQwen) {
+            setIsQwenLoginOpen(false);
+            setQwenEmail('');
+            setQwenPassword('');
+            setQwenProxy('');
+          }
+        }}
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: '16px 0' }}>
+          <Input
+            label="邮箱账号"
+            type="email"
+            value={qwenEmail}
+            onChange={(e) => setQwenEmail(e.target.value)}
+            placeholder="请输入 Qwen 登录邮箱"
+            disabled={loggingInQwen}
+          />
+          <Input
+            label="登录密码"
+            type="password"
+            value={qwenPassword}
+            onChange={(e) => setQwenPassword(e.target.value)}
+            placeholder="请输入 Qwen 登录密码"
+            disabled={loggingInQwen}
+          />
+          <Input
+            label="代理地址 (可选)"
+            value={qwenProxy}
+            onChange={(e) => setQwenProxy(e.target.value)}
+            placeholder="账号级代理，例如 http://127.0.0.1:7890"
+            disabled={loggingInQwen}
+            hint="配置此项后，该账号的登录与后续 API 调用将优先通过此代理。"
+          />
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '16px' }}>
+          <Button
+            variant="secondary"
+            onClick={() => {
+              setIsQwenLoginOpen(false);
+              setQwenEmail('');
+              setQwenPassword('');
+              setQwenProxy('');
+            }}
+            disabled={loggingInQwen}
+          >
+            {t('common.cancel')}
+          </Button>
+          <Button
+            onClick={() => void handleQwenLoginSubmit()}
+            loading={loggingInQwen}
+            disabled={loggingInQwen}
+          >
+            获取凭证并保存
+          </Button>
+        </div>
+      </Modal>
+
+      <AuthFilesPrefixProxyEditorModal
+        disableControls={disableControls}
+        editor={prefixProxyEditor}
+        updatedText={prefixProxyUpdatedText}
+        dirty={prefixProxyDirty}
+        onClose={closePrefixProxyEditor}
+        onCopyText={copyTextWithNotification}
+        onSave={handlePrefixProxySave}
+        onChange={handlePrefixProxyChange}
+      />
     </SecondaryScreenShell>
   );
 }

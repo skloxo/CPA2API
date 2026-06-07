@@ -16,9 +16,9 @@ import {
 } from '@/components/ui/icons';
 import iconOpenaiLight from '@/assets/icons/openai-light.svg';
 import iconOpenaiDark from '@/assets/icons/openai-dark.svg';
-import type { OpenAIProviderConfig } from '@/types';
+import type { OpenAIProviderConfig, AuthFileItem } from '@/types';
 import { maskApiKey } from '@/utils/format';
-import { statusBarDataFromRecentRequests } from '@/utils/recentRequests';
+import { statusBarDataFromRecentRequests, mergeRecentRequestBucketGroups } from '@/utils/recentRequests';
 import styles from '@/pages/AiProvidersPage.module.scss';
 import { ProviderStatusBar } from '../ProviderStatusBar';
 import { usePageTransitionLayer } from '@/components/common/PageTransitionLayer';
@@ -45,6 +45,7 @@ const EMPTY_STATUS_BAR = statusBarDataFromRecentRequests([]);
 
 interface OpenAISectionProps {
   configs: OpenAIProviderConfig[];
+  qwenCredentials?: AuthFileItem[];
   usageByProvider: ProviderRecentUsageMap;
   loading: boolean;
   disableControls: boolean;
@@ -71,6 +72,7 @@ const getApiKeyEntryRenderKey = (
 
 export function OpenAISection({
   configs,
+  qwenCredentials,
   usageByProvider,
   loading,
   disableControls,
@@ -525,11 +527,26 @@ export function OpenAISection({
   );
 
   const renderProviderCard = ({ config: provider, originalIndex }: IndexedOpenAIProvider) => {
-    const stats = getOpenAIProviderTotalStats(provider, usageByProvider);
+    const qwenCredentialsList = qwenCredentials || [];
+    const stats = provider.baseUrl === 'qwen'
+      ? qwenCredentialsList.reduce(
+          (total, file) => ({
+            success: total.success + Number(file.success ?? 0),
+            failure: total.failure + Number(file.failed ?? 0),
+          }),
+          { success: 0, failure: 0 }
+        )
+      : getOpenAIProviderTotalStats(provider, usageByProvider);
     const headerEntries = Object.entries(provider.headers || {});
     const apiKeyEntries = provider.apiKeyEntries || [];
     const statusData =
-      statusBarCache.get(getOpenAIProviderKey(provider, originalIndex)) || EMPTY_STATUS_BAR;
+      provider.baseUrl === 'qwen'
+        ? statusBarDataFromRecentRequests(
+            mergeRecentRequestBucketGroups(
+              qwenCredentialsList.map((file) => file.recentRequests ?? file.recent_requests ?? [])
+            )
+          )
+        : statusBarCache.get(getOpenAIProviderKey(provider, originalIndex)) || EMPTY_STATUS_BAR;
     const providerDisabled = provider.disabled === true;
 
     return (
@@ -570,46 +587,88 @@ export function OpenAISection({
               ))}
             </div>
           )}
-          {apiKeyEntries.length > 0 && (
-            <div className={styles.apiKeyEntriesSection}>
-              <div className={styles.apiKeyEntriesLabel}>
-                {t('ai_providers.openai_keys_count')}: {apiKeyEntries.length}
-              </div>
-              <div className={styles.apiKeyEntryList}>
-                {apiKeyEntries.map((entry, entryIndex) => {
-                  const entryStats = getProviderTotalStats(
-                    usageByProvider,
-                    provider.name,
-                    entry.apiKey,
-                    provider.baseUrl
-                  );
-                  return (
-                    <div
-                      key={getApiKeyEntryRenderKey(entry, entryIndex)}
-                      className={styles.apiKeyEntryCard}
-                    >
-                      <span className={styles.apiKeyEntryIndex}>{entryIndex + 1}</span>
-                      <span className={styles.apiKeyEntryKey}>{maskApiKey(entry.apiKey)}</span>
-                      {entry.proxyUrl && (
-                        <span className={styles.apiKeyEntryProxy}>{entry.proxyUrl}</span>
-                      )}
-                      <div className={styles.apiKeyEntryStats}>
-                        <span
-                          className={`${styles.apiKeyEntryStat} ${styles.apiKeyEntryStatSuccess}`}
-                        >
-                          <IconCheck size={12} /> {entryStats.success}
+          {provider.baseUrl === 'qwen' ? (
+            qwenCredentialsList.length > 0 && (
+              <div className={styles.apiKeyEntriesSection}>
+                <div className={styles.apiKeyEntriesLabel}>
+                  Qwen 账号数: {qwenCredentialsList.length}
+                </div>
+                <div className={styles.apiKeyEntryList}>
+                  {qwenCredentialsList.map((file, entryIndex) => {
+                    const fileDisabled = file.disabled === true;
+                    return (
+                      <div
+                        key={file.name}
+                        className={styles.apiKeyEntryCard}
+                      >
+                        <span className={styles.apiKeyEntryIndex}>{entryIndex + 1}</span>
+                        <span className={styles.apiKeyEntryKey}>
+                          {String(file.email || file.name || '')}
+                          {fileDisabled && <span style={{ marginLeft: 8, color: 'var(--text-tertiary)' }}>(已禁用)</span>}
                         </span>
-                        <span
-                          className={`${styles.apiKeyEntryStat} ${styles.apiKeyEntryStatFailure}`}
-                        >
-                          <IconX size={12} /> {entryStats.failure}
-                        </span>
+                        {Boolean(file.proxy_url || file.proxyUrl) && (
+                          <span className={styles.apiKeyEntryProxy}>{String(file.proxy_url || file.proxyUrl)}</span>
+                        )}
+                        <div className={styles.apiKeyEntryStats}>
+                          <span
+                            className={`${styles.apiKeyEntryStat} ${styles.apiKeyEntryStatSuccess}`}
+                          >
+                            <IconCheck size={12} /> {Number(file.success ?? 0)}
+                          </span>
+                          <span
+                            className={`${styles.apiKeyEntryStat} ${styles.apiKeyEntryStatFailure}`}
+                          >
+                            <IconX size={12} /> {Number(file.failed ?? 0)}
+                          </span>
+                        </div>
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
+                </div>
               </div>
-            </div>
+            )
+          ) : (
+            apiKeyEntries.length > 0 && (
+              <div className={styles.apiKeyEntriesSection}>
+                <div className={styles.apiKeyEntriesLabel}>
+                  {t('ai_providers.openai_keys_count')}: {apiKeyEntries.length}
+                </div>
+                <div className={styles.apiKeyEntryList}>
+                  {apiKeyEntries.map((entry, entryIndex) => {
+                    const entryStats = getProviderTotalStats(
+                      usageByProvider,
+                      provider.name,
+                      entry.apiKey,
+                      provider.baseUrl
+                    );
+                    return (
+                      <div
+                        key={getApiKeyEntryRenderKey(entry, entryIndex)}
+                        className={styles.apiKeyEntryCard}
+                      >
+                        <span className={styles.apiKeyEntryIndex}>{entryIndex + 1}</span>
+                        <span className={styles.apiKeyEntryKey}>{maskApiKey(entry.apiKey)}</span>
+                        {entry.proxyUrl && (
+                          <span className={styles.apiKeyEntryProxy}>{entry.proxyUrl}</span>
+                        )}
+                        <div className={styles.apiKeyEntryStats}>
+                          <span
+                            className={`${styles.apiKeyEntryStat} ${styles.apiKeyEntryStatSuccess}`}
+                          >
+                            <IconCheck size={12} /> {entryStats.success}
+                          </span>
+                          <span
+                            className={`${styles.apiKeyEntryStat} ${styles.apiKeyEntryStatFailure}`}
+                          >
+                            <IconX size={12} /> {entryStats.failure}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )
           )}
           <div className={styles.fieldRow} style={{ marginTop: '8px' }}>
             <span className={styles.fieldLabel}>{t('ai_providers.openai_models_count')}:</span>

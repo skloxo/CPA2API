@@ -26,7 +26,10 @@ import (
 // qwenModelMapping maps OpenAI model names to Qwen model names.
 var qwenModelMapping = map[string]string{
 	// Qwen 3.7 series
-	"qwen3.7-max": "qwen3.7-max",
+	"qwen3.7-max":       "qwen3.7-max",
+	"qwen3.7-plus":      "qwen3.7-plus",
+	"qwen3.7-plus:long": "qwen3.7-plus",
+	"qwen3.7-max:long":  "qwen3.7-max",
 	// Qwen 3.6 series
 	"qwen3.6-plus":         "qwen3.6-plus",
 	"qwen3.6-plus-preview": "qwen3.6-plus-preview",
@@ -56,7 +59,6 @@ var qwenModelMapping = map[string]string{
 	"qwen-latest-series-invite-beta-v16": "qwen-latest-series-invite-beta-v16",
 	// Long-context models routed via CLI endpoint
 	"qwen-max-latest:long": "qwen-max-latest",
-	"qwen3.7-max:long":     "qwen3.7-max",
 }
 
 // reverseQwenModelMapping maps Qwen model names back to OpenAI model names.

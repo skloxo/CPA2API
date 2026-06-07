@@ -1815,6 +1815,11 @@ func (s *Server) SetWebsocketAuthChangeHandler(fn func(bool, bool)) {
 // it allows all requests (legacy behaviour).
 func AuthMiddleware(manager *sdkaccess.Manager) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if bypass := c.GetHeader("X-CPA-Internal-Bypass"); bypass != "" && bypass == managementHandlers.InternalBypassToken {
+			c.Next()
+			return
+		}
+
 		if manager == nil {
 			c.Next()
 			return

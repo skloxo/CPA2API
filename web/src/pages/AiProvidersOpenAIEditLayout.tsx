@@ -478,7 +478,7 @@ export function AiProvidersOpenAIEditLayout() {
         prefix: form.prefix?.trim() || undefined,
         baseUrl,
         headers: buildHeaderObject(form.headers),
-        apiKeyEntries: form.apiKeyEntries.map((entry: ApiKeyEntry) => ({
+        apiKeyEntries: form.baseUrl === 'qwen' ? [] : form.apiKeyEntries.map((entry: ApiKeyEntry) => ({
           apiKey: entry.apiKey.trim(),
           proxyUrl: entry.proxyUrl?.trim() || undefined,
           authIndex: normalizeAuthIndex(entry.authIndex) ?? undefined,

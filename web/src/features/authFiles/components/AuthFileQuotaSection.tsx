@@ -18,7 +18,7 @@ import {
   type QuotaProviderType
 } from '@/features/authFiles/constants';
 import { QuotaProgressBar } from '@/features/authFiles/components/QuotaProgressBar';
-import styles from '@/pages/AuthFilesPage.module.scss';
+import styles from '../authFiles.module.scss';
 
 type QuotaState = { status?: string; error?: string; errorStatus?: number } | undefined;
 

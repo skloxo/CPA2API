@@ -2202,6 +2202,35 @@
       ]
     },
     {
+      "id": "qwen3.7-plus",
+      "object": "model",
+      "created": 1782000000,
+      "owned_by": "qwen",
+      "type": "qwen",
+      "display_name": "Qwen3.7 Plus",
+      "context_length": 131072,
+      "max_completion_tokens": 64000,
+      "thinking": {
+        "min": 1024,
+        "max": 64000,
+        "zero_allowed": true,
+        "dynamic_allowed": true,
+        "levels": [
+          "none",
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ]
+      },
+      "supportedInputModalities": [
+        "TEXT"
+      ],
+      "supportedOutputModalities": [
+        "TEXT"
+      ]
+    },
+    {
       "id": "qwen3.6-max-preview",
       "object": "model",
       "created": 1780000000,

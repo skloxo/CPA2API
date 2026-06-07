@@ -974,7 +974,7 @@ func (e *QwenExecutor) Refresh(ctx context.Context, auth *cliproxyauth.Auth) (*c
 	}
 
 	// Update model discovery credentials
-	e.modelDisc.SetCredentials(result.Token, qwenCookie(auth))
+	e.modelDisc.SetCredentials(result.Token, qwenCookie(auth), auth.ProxyURL)
 
 	return auth, nil
 }
