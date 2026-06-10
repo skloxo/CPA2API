@@ -26,7 +26,6 @@ const OAUTH_PROVIDER_PRESETS = [
   'antigravity',
   'claude',
   'codex',
-  'qwen',
   'kimi',
   'iflow',
 ];
@@ -60,8 +59,12 @@ export function AuthFilesOAuthExcludedEditPage() {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
+    if (providerFromParams.trim().toLowerCase() === 'qwen') {
+      navigate('/ai-providers', { replace: true });
+      return;
+    }
     setProvider(providerFromParams);
-  }, [providerFromParams]);
+  }, [providerFromParams, navigate]);
 
   const providerOptions = useMemo(() => {
     const extraProviders = new Set<string>();
@@ -78,7 +81,7 @@ export function AuthFilesOAuthExcludedEditPage() {
 
     const normalizedExtras = Array.from(extraProviders)
       .map((value) => value.trim())
-      .filter((value) => value && !OAUTH_PROVIDER_EXCLUDES.has(value.toLowerCase()));
+      .filter((value) => value && !OAUTH_PROVIDER_EXCLUDES.has(value.toLowerCase()) && value.toLowerCase() !== 'qwen');
 
     const baseSet = new Set(OAUTH_PROVIDER_PRESETS.map((value) => value.toLowerCase()));
     const extraList = normalizedExtras
