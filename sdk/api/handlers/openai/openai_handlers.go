@@ -35,6 +35,8 @@ import (
 	"github.com/tidwall/sjson"
 )
 
+var drawingRegex = regexp.MustCompile(`(?i)^(?:画|绘制|生成|设计|创建|创作|draw|paint|generate|create|make)\s*(?:一幅|一个|一只|一张|一些|a|an|the)?\s*(?:图片|图|画|插画|头像|照片|海报|image|picture|photo|illustration|painting|drawing|poster|avatar)\s*[:：]?(.*)$`)
+
 // OpenAIAPIHandler contains the handlers for OpenAI API endpoints.
 // It holds a pool of clients to interact with the backend service.
 type OpenAIAPIHandler struct {
@@ -783,7 +785,6 @@ func matchDrawingIntent(rawJSON []byte) (string, bool) {
 	}
 
 	// 2. Regex match
-	drawingRegex := regexp.MustCompile(`(?i)^(?:画|绘制|生成|设计|创建|创作|draw|paint|generate|create|make)\s*(?:一幅|一个|一只|一张|一些|a|an|the)?\s*(?:图片|图|画|插画|头像|照片|海报|image|picture|photo|illustration|painting|drawing|poster|avatar)\s*[:：]?(.*)$`)
 	matches := drawingRegex.FindStringSubmatch(textContent)
 	if len(matches) > 1 {
 		prompt := strings.TrimSpace(matches[1])

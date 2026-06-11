@@ -27,6 +27,15 @@ import (
 	"github.com/tidwall/sjson"
 )
 
+var (
+	reXML     = regexp.MustCompile(`(?s)<(?:custom_)?tool_calls>.*?</(?:custom_)?tool_calls>`)
+	reXML2    = regexp.MustCompile(`(?s)<(?:custom_)?tool_call.*?>.*?</(?:custom_)?tool_call>`)
+	reBracket = regexp.MustCompile(`(?s)\[function_calls\].*?\[/function_calls\]`)
+	reAntml   = regexp.MustCompile(`(?s)<antml:function_calls>.*?</antml:function_calls>`)
+	reMarker  = regexp.MustCompile(`(?i)##TOOL_CALL##.*?##END_CALL##`)
+	reCode    = regexp.MustCompile("(?s)```(?:custom_)?tool_call.*?```")
+)
+
 // completionIDKey is used to store a shared completion ID in the param context.
 const completionIDKey = "qwen_completion_id"
 
@@ -573,25 +582,19 @@ func buildOpenAIToolCallStreamChunk(chunkID string, created int64, model string,
 func stripToolCallText(text string) string {
 	text = stripThinking(text)
 	// Strip XML
-	reXML := regexp.MustCompile(`(?s)<(?:custom_)?tool_calls>.*?</(?:custom_)?tool_calls>`)
 	text = reXML.ReplaceAllString(text, "")
-	reXML2 := regexp.MustCompile(`(?s)<(?:custom_)?tool_call.*?>.*?</(?:custom_)?tool_call>`)
 	text = reXML2.ReplaceAllString(text, "")
 
 	// Strip bracket format
-	reBracket := regexp.MustCompile(`(?s)\[function_calls\].*?\[/function_calls\]`)
 	text = reBracket.ReplaceAllString(text, "")
 
 	// Strip anthropic format
-	reAntml := regexp.MustCompile(`(?s)<antml:function_calls>.*?</antml:function_calls>`)
 	text = reAntml.ReplaceAllString(text, "")
 
 	// Strip text marker
-	reMarker := regexp.MustCompile(`(?i)##TOOL_CALL##.*?##END_CALL##`)
 	text = reMarker.ReplaceAllString(text, "")
 
 	// Strip code block format
-	reCode := regexp.MustCompile("(?s)```(?:custom_)?tool_call.*?```")
 	text = reCode.ReplaceAllString(text, "")
 
 	return strings.TrimSpace(text)

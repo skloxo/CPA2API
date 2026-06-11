@@ -292,10 +292,16 @@ func BulletproofRepairJSON(s string) string {
 	return string(cleanRunes)
 }
 
+var (
+	reCodeFences   = regexp.MustCompile("(?s)```(?:json|xml|tool_call)?\\s*\\n(.*?)\\n```")
+	reThinking     = regexp.MustCompile(`(?s)<think>.*?</think>`)
+	reTrailingComm = regexp.MustCompile(`,\s*([}\]])`)
+	reUnquotedKeys = regexp.MustCompile(`(\w+)\s*:`)
+)
+
 // stripCodeFences removes markdown code fences from text.
 func stripCodeFences(text string) string {
-	re := regexp.MustCompile("(?s)```(?:json|xml|tool_call)?\\s*\\n(.*?)\\n```")
-	if m := re.FindStringSubmatch(text); m != nil {
+	if m := reCodeFences.FindStringSubmatch(text); m != nil {
 		return strings.TrimSpace(m[1])
 	}
 	return text
@@ -303,8 +309,7 @@ func stripCodeFences(text string) string {
 
 // stripThinking removes <think>...</think> tags from text.
 func stripThinking(text string) string {
-	re := regexp.MustCompile(`(?s)<think>.*?</think>`)
-	return strings.TrimSpace(re.ReplaceAllString(text, ""))
+	return strings.TrimSpace(reThinking.ReplaceAllString(text, ""))
 }
 
 // repairLooseJSON attempts to fix common JSON formatting issues.
@@ -312,11 +317,9 @@ func repairLooseJSON(s string) string {
 	// Fix single quotes to double quotes
 	s = strings.ReplaceAll(s, "'", "\"")
 	// Fix trailing commas
-	re := regexp.MustCompile(`,\s*([}\]])`)
-	s = re.ReplaceAllString(s, "$1")
+	s = reTrailingComm.ReplaceAllString(s, "$1")
 	// Fix unquoted keys
-	re2 := regexp.MustCompile(`(\w+)\s*:`)
-	s = re2.ReplaceAllString(s, `"$1":`)
+	s = reUnquotedKeys.ReplaceAllString(s, `"$1":`)
 	return s
 }
 
