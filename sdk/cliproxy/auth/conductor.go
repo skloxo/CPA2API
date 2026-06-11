@@ -4735,11 +4735,5 @@ func (m *Manager) ActiveConcurrency(auth *Auth) int {
 	if m == nil || m.concurrency == nil || auth == nil {
 		return 0
 	}
-	m.concurrency.mu.Lock()
-	defer m.concurrency.mu.Unlock()
-	sem, ok := m.concurrency.semaphores[auth.ID]
-	if !ok {
-		return 0
-	}
-	return len(sem)
+	return m.concurrency.ActiveConcurrency(auth)
 }
