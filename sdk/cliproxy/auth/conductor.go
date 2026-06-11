@@ -713,6 +713,25 @@ func (m *Manager) authSupportsRouteModel(registryRef *registry.ModelRegistry, au
 	if registryRef == nil || auth == nil {
 		return true
 	}
+	if strings.EqualFold(auth.Provider, "qwen") {
+		hasCreds := false
+		if auth.Metadata != nil {
+			if v, ok := auth.Metadata["access_token"].(string); ok && strings.TrimSpace(v) != "" {
+				hasCreds = true
+			}
+			if v, ok := auth.Metadata["cookie"].(string); ok && strings.TrimSpace(v) != "" {
+				hasCreds = true
+			}
+		}
+		if auth.Attributes != nil {
+			if auth.Attributes["access_token"] != "" || auth.Attributes["api_key"] != "" || auth.Attributes["cookie"] != "" {
+				hasCreds = true
+			}
+		}
+		if !hasCreds {
+			return false
+		}
+	}
 	routeKey := canonicalModelKey(routeModel)
 	if routeKey == "" {
 		return true

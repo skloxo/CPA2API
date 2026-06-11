@@ -415,7 +415,11 @@ func (s *Service) ensureExecutorsForAuthWithMode(a *coreauth.Auth, forceReplace 
 		if compatProviderKey == "" {
 			compatProviderKey = "openai-compatibility"
 		}
-		s.coreManager.RegisterExecutor(executor.NewOpenAICompatExecutor(compatProviderKey, s.cfg))
+		if strings.EqualFold(compatProviderKey, "qwen") {
+			s.coreManager.RegisterExecutor(executor.NewQwenExecutor(s.cfg))
+		} else {
+			s.coreManager.RegisterExecutor(executor.NewOpenAICompatExecutor(compatProviderKey, s.cfg))
+		}
 		return
 	}
 	switch strings.ToLower(a.Provider) {
@@ -445,7 +449,11 @@ func (s *Service) ensureExecutorsForAuthWithMode(a *coreauth.Auth, forceReplace 
 		if providerKey == "" {
 			providerKey = "openai-compatibility"
 		}
-		s.coreManager.RegisterExecutor(executor.NewOpenAICompatExecutor(providerKey, s.cfg))
+		if strings.EqualFold(providerKey, "qwen") {
+			s.coreManager.RegisterExecutor(executor.NewQwenExecutor(s.cfg))
+		} else {
+			s.coreManager.RegisterExecutor(executor.NewOpenAICompatExecutor(providerKey, s.cfg))
+		}
 	}
 }
 
