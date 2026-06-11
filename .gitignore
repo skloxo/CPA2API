@@ -63,3 +63,8 @@ server
 *.tar.gz
 *.bak
 config-dev.yaml
+
+# Agent workspace documentation (do not track in git)
+implementation_plan.md
+task.md
+walkthrough.md
