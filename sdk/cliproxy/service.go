@@ -27,6 +27,7 @@ import (
 	coreauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
 	"github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/usage"
 	"github.com/router-for-me/CLIProxyAPI/v7/sdk/config"
+	sdktranslator "github.com/router-for-me/CLIProxyAPI/v7/sdk/translator"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -573,6 +574,7 @@ func (s *Service) applyConfigUpdate(newCfg *config.Config) {
 	s.cfgMu.Lock()
 	s.cfg = newCfg
 	s.cfgMu.Unlock()
+	sdktranslator.UseCanonical = newCfg.UseCanonicalTranslator
 	if s.coreManager != nil {
 		s.coreManager.SetConfig(newCfg)
 		s.coreManager.SetOAuthModelAlias(newCfg.OAuthModelAlias)
@@ -2100,7 +2102,7 @@ func (s *Service) checkQwenCredentialsState() {
 		return
 	}
 
-	var token, cookie, proxyURL string
+	var token, cookie string
 	auths := s.coreManager.List()
 	for _, a := range auths {
 		if a != nil && strings.EqualFold(strings.TrimSpace(a.Provider), "qwen") && !a.Disabled {
@@ -2130,21 +2132,13 @@ func (s *Service) checkQwenCredentialsState() {
 				}
 			}
 			if token != "" {
-				proxyURL = a.ProxyURL
-				if proxyURL == "" && a.Metadata != nil {
-					if p, ok := a.Metadata["proxy_url"].(string); ok {
-						proxyURL = p
-					} else if p, ok := a.Metadata["proxy"].(string); ok {
-						proxyURL = p
-					}
-				}
 				break
 			}
 		}
 	}
 	if token != "" {
 		disc := executor.GetQwenModelDiscovery(s.cfg)
-		disc.SetCredentials(token, cookie, proxyURL)
+		disc.SetCredentials(token, cookie, "")
 	}
 }
 

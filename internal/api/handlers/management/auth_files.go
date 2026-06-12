@@ -608,14 +608,6 @@ func (h *Handler) buildAuthFileEntry(auth *coreauth.Auth) gin.H {
 	if websockets, ok := authWebsocketsValue(auth); ok {
 		entry["websockets"] = websockets
 	}
-	// Expose proxy_url from Metadata for Qwen accounts
-	if auth.Metadata != nil {
-		if proxyURL, ok := auth.Metadata["proxy_url"].(string); ok {
-			if trimmed := strings.TrimSpace(proxyURL); trimmed != "" {
-				entry["proxy_url"] = trimmed
-			}
-		}
-	}
 	return entry
 }
 
@@ -1539,11 +1531,6 @@ func syncAuthFileMetadataFields(auth *coreauth.Auth, touchedRoots map[string]str
 	if _, ok := touchedRoots["prefix"]; ok {
 		if prefix, okString := auth.Metadata["prefix"].(string); okString {
 			auth.Prefix = strings.TrimSpace(prefix)
-		}
-	}
-	if _, ok := touchedRoots["proxy_url"]; ok {
-		if proxyURL, okString := auth.Metadata["proxy_url"].(string); okString {
-			auth.ProxyURL = strings.TrimSpace(proxyURL)
 		}
 	}
 	if _, ok := touchedRoots["headers"]; ok {
@@ -3207,19 +3194,14 @@ func (h *Handler) PostAuthFileRefresh(c *gin.Context) {
 
 	email := strings.TrimSpace(gjson.GetBytes(data, "email").String())
 	password := strings.TrimSpace(gjson.GetBytes(data, "password").String())
-	proxyURL := strings.TrimSpace(gjson.GetBytes(data, "proxy_url").String())
-	if proxyURL == "" {
-		proxyURL = strings.TrimSpace(gjson.GetBytes(data, "proxy").String())
-	}
-
 	if email == "" || password == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "auth file missing email or password required for refresh"})
 		return
 	}
 
-	// Sign in with Qwen
+	// Sign in with Qwen (proxy is resolved from provider config, not from credential)
 	qwenAuthSvc := qwen.NewQwenAuth(h.cfg)
-	result, err := qwenAuthSvc.SignIn(c.Request.Context(), email, password, proxyURL)
+	result, err := qwenAuthSvc.SignIn(c.Request.Context(), email, password, "")
 	if err != nil {
 		log.Errorf("qwen refresh failed for %s: %v", email, err)
 		c.JSON(http.StatusBadGateway, gin.H{"error": fmt.Sprintf("Qwen sign-in failed: %v", err)})
@@ -3232,12 +3214,6 @@ func (h *Handler) PostAuthFileRefresh(c *gin.Context) {
 		Email:       email,
 		Expired:     result.Expired,
 		Password:    password,
-		ProxyURL:    proxyURL,
-	}
-	if proxyURL != "" {
-		storage.SetMetadata(map[string]any{
-			"proxy": proxyURL,
-		})
 	}
 
 	if err := storage.SaveTokenToFile(fullPath); err != nil {

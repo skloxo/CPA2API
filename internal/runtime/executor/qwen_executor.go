@@ -938,7 +938,7 @@ func (e *QwenExecutor) Refresh(ctx context.Context, auth *cliproxyauth.Auth) (*c
 		return nil, fmt.Errorf("qwen executor: auth is nil")
 	}
 
-	var email, password, proxyURL string
+	var email, password string
 	if auth.Metadata != nil {
 		if v, ok := auth.Metadata["email"].(string); ok {
 			email = strings.TrimSpace(v)
@@ -946,15 +946,15 @@ func (e *QwenExecutor) Refresh(ctx context.Context, auth *cliproxyauth.Auth) (*c
 		if v, ok := auth.Metadata["password"].(string); ok {
 			password = strings.TrimSpace(v)
 		}
-		if v, ok := auth.Metadata["proxy_url"].(string); ok {
-			proxyURL = strings.TrimSpace(v)
-		}
-	}
-	if proxyURL == "" && auth.ProxyURL != "" {
-		proxyURL = strings.TrimSpace(auth.ProxyURL)
 	}
 	if email == "" || password == "" {
 		return auth, fmt.Errorf("qwen executor: cannot refresh without email and password in metadata")
+	}
+
+	// Get proxy from provider config instead of credential
+	var proxyURL string
+	if compatConfig := e.resolveCompatConfig(auth); compatConfig != nil {
+		proxyURL = strings.TrimSpace(compatConfig.ProxyURL)
 	}
 
 	qwenAuthSvc := qwenauth.NewQwenAuth(e.cfg)
@@ -972,7 +972,6 @@ func (e *QwenExecutor) Refresh(ctx context.Context, auth *cliproxyauth.Auth) (*c
 	}
 	auth.Metadata["type"] = "qwen"
 	auth.Metadata["password"] = password
-	auth.Metadata["proxy_url"] = proxyURL
 	now := time.Now().Format(time.RFC3339)
 	auth.Metadata["last_refresh"] = now
 
@@ -982,11 +981,10 @@ func (e *QwenExecutor) Refresh(ctx context.Context, auth *cliproxyauth.Auth) (*c
 			storage.Expired = result.Expired
 		}
 		storage.Password = password
-		storage.ProxyURL = proxyURL
 	}
 
-	// Update model discovery credentials
-	e.modelDisc.SetCredentials(result.Token, qwenCookie(auth), auth.ProxyURL)
+	// Update model discovery credentials (proxy resolved from provider config above)
+	e.modelDisc.SetCredentials(result.Token, qwenCookie(auth), proxyURL)
 
 	return auth, nil
 }
@@ -1034,6 +1032,36 @@ func qwenCreds(a *cliproxyauth.Auth) (token, cookie string) {
 func qwenCookie(a *cliproxyauth.Auth) string {
 	_, cookie := qwenCreds(a)
 	return cookie
+}
+
+func (e *QwenExecutor) resolveCompatConfig(auth *cliproxyauth.Auth) *config.OpenAICompatibility {
+	if auth == nil || e.cfg == nil {
+		return nil
+	}
+	candidates := make([]string, 0, 3)
+	if auth.Attributes != nil {
+		if v := strings.TrimSpace(auth.Attributes["compat_name"]); v != "" {
+			candidates = append(candidates, v)
+		}
+		if v := strings.TrimSpace(auth.Attributes["provider_key"]); v != "" {
+			candidates = append(candidates, v)
+		}
+	}
+	if v := strings.TrimSpace(auth.Provider); v != "" {
+		candidates = append(candidates, v)
+	}
+	for i := range e.cfg.OpenAICompatibility {
+		compat := &e.cfg.OpenAICompatibility[i]
+		if compat.Disabled {
+			continue
+		}
+		for _, candidate := range candidates {
+			if candidate != "" && strings.EqualFold(strings.TrimSpace(candidate), compat.Name) {
+				return compat
+			}
+		}
+	}
+	return nil
 }
 
 // generateLocalChatID creates a random UUID to use as a Qwen chat_id.
