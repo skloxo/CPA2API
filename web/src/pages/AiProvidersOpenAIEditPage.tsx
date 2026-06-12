@@ -886,7 +886,7 @@ export function AiProvidersOpenAIEditPage() {
                       type="text"
                       value={qwenProxyDrafts[file.name] ?? String(file.proxy_url ?? file.proxyUrl ?? '')}
                       onChange={(e) => updateQwenProxyDraft(file.name, e.target.value)}
-                      onBlur={() => void saveQwenProxyDraft(file.name)}
+
                       disabled={saving || disableControls}
                       className={`input ${styles.keyTableInput}`}
                       placeholder="默认使用全局代理 / 直连"
@@ -911,6 +911,14 @@ export function AiProvidersOpenAIEditPage() {
                       disabled={saving || disableControls}
                     >
                       详情
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => void saveQwenProxyDraft(file.name)}
+                      disabled={saving || disableControls}
+                    >
+                      保存代理
+                    </Button>
                     </Button>
                     <Button
                       variant="secondary"
