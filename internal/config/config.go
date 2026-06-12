@@ -574,6 +574,9 @@ type OpenAICompatibility struct {
 
 	// DisableCooling disables auth/model cooldown scheduling for this provider when true.
 	DisableCooling bool `yaml:"disable-cooling,omitempty" json:"disable-cooling,omitempty"`
+
+	// ProxyURL overrides the global proxy setting for this provider.
+	ProxyURL string `yaml:"proxy-url,omitempty" json:"proxy-url,omitempty"`
 }
 
 // OpenAICompatibilityAPIKey represents an API key configuration with optional proxy setting.

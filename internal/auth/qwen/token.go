@@ -23,8 +23,8 @@ type QwenTokenStorage struct {
 	Expired string `json:"expired,omitempty"`
 	// Password is the user's account password.
 	Password string `json:"password,omitempty"`
-	// ProxyURL is the proxy URL to be used for requests.
-	ProxyURL string `json:"proxy_url,omitempty"`
+	// ProxyURL is deprecated - proxy is now configured at the provider level.
+	ProxyURL string `json:"-"`
 	// Type indicates the authentication provider type, always "qwen" for this storage.
 	Type string `json:"type"`
 

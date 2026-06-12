@@ -137,7 +137,6 @@ export function AiProvidersOpenAIEditPage() {
   // Qwen States & Handlers
   const [qwenCredentials, setQwenCredentials] = useState<AuthFileItem[]>([]);
   const [loadingQwen, setLoadingQwen] = useState(false);
-  const [qwenProxyDrafts, setQwenProxyDrafts] = useState<Record<string, string>>({});
   const [qwenTestStatuses, setQwenTestStatuses] = useState<Record<string, { status: 'idle' | 'loading' | 'success' | 'error', message?: string }>>({});
   const [isQwenLoginOpen, setIsQwenLoginOpen] = useState(false);
   const [qwenEmail, setQwenEmail] = useState('');
@@ -154,12 +153,6 @@ export function AiProvidersOpenAIEditPage() {
         (file) => String(file.type ?? file.provider ?? '').toLowerCase() === 'qwen'
       );
       setQwenCredentials(filtered);
-      // 初始化代理草稿状态
-      const drafts: Record<string, string> = {};
-      filtered.forEach((f: any) => {
-        drafts[f.name] = String(f.proxy_url ?? f.proxyUrl ?? '');
-      });
-      setQwenProxyDrafts(drafts);
     } catch (err) {
       console.error('Failed to load Qwen credentials', err);
       showNotification('加载 Qwen 凭证失败', 'error');
@@ -215,25 +208,6 @@ export function AiProvidersOpenAIEditPage() {
       setQwenTestStatuses((prev) => ({ ...prev, [file.name]: { status: 'error', message } }));
       showNotification(`${file.email || file.name} 测试连接失败: ${message}`, 'error');
     }
-  };
-
-  const handleQwenProxyBlur = async (name: string, value: string) => {
-    try {
-      await authFilesApi.patchFields(name, { proxy_url: value.trim() });
-      showNotification('代理地址已更新', 'success');
-      void fetchQwenCredentials();
-    } catch (err) {
-      showNotification(`保存代理失败: ${getErrorMessage(err)}`, 'error');
-    }
-  };
-
-  const updateQwenProxyDraft = (name: string, value: string) => {
-    setQwenProxyDrafts((prev) => ({ ...prev, [name]: value }));
-  };
-
-  const saveQwenProxyDraft = async (name: string) => {
-    const value = qwenProxyDrafts[name] ?? '';
-    await handleQwenProxyBlur(name, value);
   };
 
   const handleQwenRefresh = async (name: string) => {
@@ -717,7 +691,6 @@ export function AiProvidersOpenAIEditPage() {
             <div className={styles.keyTableColIndex}>#</div>
             <div className={styles.keyTableColStatus}>{t('common.status')}</div>
             <div className={styles.keyTableColKey}>{t('common.api_key')}</div>
-            <div className={styles.keyTableColProxy}>{t('common.proxy_url')}</div>
             <div className={styles.keyTableColAction}>{t('common.action')}</div>
           </div>
 
@@ -778,17 +751,7 @@ export function AiProvidersOpenAIEditPage() {
                   </div>
                 </div>
 
-                {/* Proxy 输入框 */}
-                <div className={styles.keyTableColProxy}>
-                  <input
-                    type="text"
-                    value={entry.proxyUrl ?? ''}
-                    onChange={(e) => updateEntry(index, 'proxyUrl', e.target.value)}
-                    disabled={saving || disableControls || isTestingKeys}
-                    className={`input ${styles.keyTableInput}`}
-                    placeholder={t('ai_providers.openai_proxy_placeholder')}
-                  />
-                </div>
+
 
                 {/* 操作按钮 */}
                 <div className={styles.keyTableColAction}>
@@ -850,7 +813,6 @@ export function AiProvidersOpenAIEditPage() {
             <div className={styles.keyTableColIndex} style={{ width: '40px' }}>#</div>
             <div className={styles.keyTableColStatus} style={{ width: '60px' }}>测试状态</div>
             <div className={styles.keyTableColKey}>账号 (Email)</div>
-            <div className={styles.keyTableColProxy}>账号级代理 (优先走账号代理)</div>
             <div className={styles.keyTableColAction}>操作</div>
           </div>
 
@@ -886,19 +848,6 @@ export function AiProvidersOpenAIEditPage() {
                     {String(file.email || file.name || '')}
                   </div>
 
-                  {/* 账号级代理代理输入框 */}
-                  <div className={styles.keyTableColProxy}>
-                    <input
-                      type="text"
-                      value={qwenProxyDrafts[file.name] ?? String(file.proxy_url ?? file.proxyUrl ?? '')}
-                      onChange={(e) => updateQwenProxyDraft(file.name, e.target.value)}
-
-                      disabled={saving || disableControls}
-                      className={`input ${styles.keyTableInput}`}
-                      placeholder="默认使用全局代理 / 直连"
-                    />
-                  </div>
-
                   {/* 操作按钮 */}
                   <div className={styles.keyTableColAction}>
                     <Button
@@ -917,14 +866,6 @@ export function AiProvidersOpenAIEditPage() {
                       disabled={saving || disableControls}
                     >
                       详情
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => void saveQwenProxyDraft(file.name)}
-                      disabled={saving || disableControls}
-                    >
-                      保存代理
-                    </Button>
                     </Button>
                     <Button
                       variant="secondary"
@@ -1051,6 +992,16 @@ export function AiProvidersOpenAIEditPage() {
                 label={t('ai_providers.openai_add_modal_url_label')}
                 value={form.baseUrl}
                 onChange={(e) => setForm((prev) => ({ ...prev, baseUrl: e.target.value }))}
+                disabled={saving || disableControls || isTestingKeys}
+              />
+            )}
+
+            {form.baseUrl === 'qwen' && (
+              <Input
+                label="代理地址 (可选)"
+                value={form.proxyUrl ?? ''}
+                onChange={(e) => setForm((prev) => ({ ...prev, proxyUrl: e.target.value || undefined }))}
+                placeholder="例如 http://127.0.0.1:7890"
                 disabled={saving || disableControls || isTestingKeys}
               />
             )}

@@ -51,6 +51,7 @@ const buildEmptyForm = (): OpenAIFormState => ({
   apiKeyEntries: [buildApiKeyEntry()],
   modelEntries: [{ name: '', alias: '' }],
   testModel: undefined,
+  proxyUrl: undefined,
 });
 
 const parseIndexParam = (value: string | undefined) => {
@@ -258,7 +259,7 @@ export function AiProvidersOpenAIEditLayout() {
       navigate(-1);
       return;
     }
-    navigate('/ai-providers', { replace: true });
+    navigate('/providers', { replace: true });
   }, [location.state, navigate]);
 
   useEffect(() => {
@@ -315,6 +316,9 @@ export function AiProvidersOpenAIEditLayout() {
         apiKeyEntries: initialData.apiKeyEntries?.length
           ? initialData.apiKeyEntries
           : [buildApiKeyEntry()],
+        proxyUrl: typeof (initialData as Record<string, unknown>).proxyUrl === 'string'
+          ? String((initialData as Record<string, unknown>).proxyUrl)
+          : undefined,
       };
 
       const available = modelEntries.map((entry) => entry.name.trim()).filter(Boolean);
@@ -439,9 +443,9 @@ export function AiProvidersOpenAIEditLayout() {
       isModelsDirty);
   const editorRootPath = useMemo(() => {
     if (hasIndexParam) {
-      return `/ai-providers/openai/${params.index ?? ''}`;
+      return `/providers/${params.index ?? ''}`;
     }
-    return '/ai-providers/openai/new';
+    return '/providers/new';
   }, [hasIndexParam, params.index]);
   const canGuard = !resolvedLoading && !saving && !invalidIndexParam && !invalidIndex;
 
@@ -485,6 +489,9 @@ export function AiProvidersOpenAIEditLayout() {
           headers: entry.headers,
         })),
       };
+      if (form.baseUrl === 'qwen' && form.proxyUrl?.trim()) {
+        (payload as Record<string, unknown>).proxyUrl = form.proxyUrl.trim();
+      }
       if (form.priority !== undefined && Number.isFinite(form.priority)) {
         payload.priority = Math.trunc(form.priority);
       }

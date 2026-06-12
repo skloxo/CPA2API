@@ -14,7 +14,6 @@ import (
 type qwenLoginRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
-	Proxy    string `json:"proxy,omitempty"`
 }
 
 // PostQwenLogin handles POST /qwen-login requests.
@@ -34,7 +33,6 @@ func (h *Handler) PostQwenLogin(c *gin.Context) {
 
 	email := strings.TrimSpace(req.Email)
 	password := strings.TrimSpace(req.Password)
-	proxy := strings.TrimSpace(req.Proxy)
 	if email == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "email is required"})
 		return
@@ -46,7 +44,7 @@ func (h *Handler) PostQwenLogin(c *gin.Context) {
 
 	// Sign in with Qwen
 	auth := qwen.NewQwenAuth(h.cfg)
-	result, err := auth.SignIn(context.Background(), email, password, proxy)
+	result, err := auth.SignIn(context.Background(), email, password, "")
 	if err != nil {
 		log.Errorf("qwen login failed for %s: %v", email, err)
 		c.JSON(http.StatusBadGateway, gin.H{"status": "error", "message": err.Error()})
@@ -59,14 +57,6 @@ func (h *Handler) PostQwenLogin(c *gin.Context) {
 		Email:       email,
 		Expired:     result.Expired,
 		Password:    password,
-		ProxyURL:    proxy,
-	}
-
-	// Inject proxy metadata if provided
-	if proxy != "" {
-		storage.SetMetadata(map[string]any{
-			"proxy": proxy,
-		})
 	}
 
 	// Persist to auth directory
