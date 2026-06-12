@@ -137,6 +137,7 @@ export function AiProvidersOpenAIEditPage() {
   // Qwen States & Handlers
   const [qwenCredentials, setQwenCredentials] = useState<AuthFileItem[]>([]);
   const [loadingQwen, setLoadingQwen] = useState(false);
+  const [qwenProxyDrafts, setQwenProxyDrafts] = useState<Record<string, string>>({});
   const [qwenTestStatuses, setQwenTestStatuses] = useState<Record<string, { status: 'idle' | 'loading' | 'success' | 'error', message?: string }>>({});
   const [isQwenLoginOpen, setIsQwenLoginOpen] = useState(false);
   const [qwenEmail, setQwenEmail] = useState('');
@@ -218,6 +219,15 @@ export function AiProvidersOpenAIEditPage() {
     } catch (err) {
       showNotification(`保存代理失败: ${getErrorMessage(err)}`, 'error');
     }
+  };
+
+  const updateQwenProxyDraft = (name: string, value: string) => {
+    setQwenProxyDrafts((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const saveQwenProxyDraft = async (name: string) => {
+    const value = qwenProxyDrafts[name] ?? '';
+    await handleQwenProxyBlur(name, value);
   };
 
   const handleQwenRefresh = async (name: string) => {
@@ -874,8 +884,9 @@ export function AiProvidersOpenAIEditPage() {
                   <div className={styles.keyTableColProxy}>
                     <input
                       type="text"
-                      defaultValue={String(file.proxy_url ?? file.proxyUrl ?? '')}
-                      onBlur={(e) => void handleQwenProxyBlur(file.name, e.target.value)}
+                      value={qwenProxyDrafts[file.name] ?? String(file.proxy_url ?? file.proxyUrl ?? '')}
+                      onChange={(e) => updateQwenProxyDraft(file.name, e.target.value)}
+                      onBlur={() => void saveQwenProxyDraft(file.name)}
                       disabled={saving || disableControls}
                       className={`input ${styles.keyTableInput}`}
                       placeholder="默认使用全局代理 / 直连"
