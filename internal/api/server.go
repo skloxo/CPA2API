@@ -220,6 +220,11 @@ type Server struct {
 	usageStore     *store.Store
 	usageCollector *collector.Manager
 	usageServer    *httpapi.Server
+
+	// metrics
+	requestCount      int64
+	activeConnections int64
+	startTime         time.Time
 }
 
 // NewServer creates and initializes a new API server instance.
@@ -274,6 +279,13 @@ func NewServer(cfg *config.Config, authManager *auth.Manager, accessManager *sdk
 	}
 
 	engine.Use(corsMiddleware())
+
+	// Security: limit request body size to 10MB
+	engine.Use(func(c *gin.Context) {
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 10<<20)
+		c.Next()
+	})
+
 	wd, err := os.Getwd()
 	if err != nil {
 		wd = configFilePath
@@ -337,8 +349,16 @@ func NewServer(cfg *config.Config, authManager *auth.Manager, accessManager *sdk
 		usageStore:          uStore,
 		usageCollector:      uCollector,
 		usageServer:         uServer,
+		startTime:           time.Now(),
 	}
 	s.wsAuthEnabled.Store(cfg.WebsocketAuth)
+	// Metrics: track request count and active connections
+	engine.Use(func(c *gin.Context) {
+		atomic.AddInt64(&s.requestCount, 1)
+		atomic.AddInt64(&s.activeConnections, 1)
+		defer atomic.AddInt64(&s.activeConnections, -1)
+		c.Next()
+	})
 	// Save initial YAML snapshot
 	if yamlBytes, err := yaml.Marshal(cfg); err != nil {
 		log.Errorf("failed to marshal config to YAML: %v", err)
@@ -473,6 +493,9 @@ func (s *Server) setupRoutes() {
 	}
 	s.engine.GET("/healthz", healthzHandler)
 	s.engine.HEAD("/healthz", healthzHandler)
+
+	// Prometheus-compatible metrics endpoint
+	s.engine.GET("/metrics", s.metricsHandler())
 
 	// Mount native usage-service routes
 	if s.usageServer != nil {
@@ -1584,6 +1607,23 @@ func corsMiddleware() gin.HandlerFunc {
 		}
 
 		c.Next()
+	}
+}
+
+func (s *Server) metricsHandler() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		active := atomic.LoadInt64(&s.activeConnections)
+		requests := atomic.LoadInt64(&s.requestCount)
+		uptime := int64(time.Since(s.startTime).Seconds())
+
+		metrics := fmt.Sprintf(
+			"# HELP cpa2api_requests_total Total requests\n# TYPE cpa2api_requests_total counter\ncpa2api_requests_total %d\n\n# HELP cpa2api_active_connections Active connections\n# TYPE cpa2api_active_connections gauge\ncpa2api_active_connections %d\n\n# HELP cpa2api_uptime_seconds Uptime in seconds\n# TYPE cpa2api_uptime_seconds gauge\ncpa2api_uptime_seconds %d\n",
+			requests,
+			active,
+			uptime,
+		)
+		c.Header("Content-Type", "text/plain; version=0.0.4")
+		c.String(http.StatusOK, metrics)
 	}
 }
 

@@ -79,20 +79,22 @@ func (q *preheatQueue) Pop() string {
 // QwenExecutor is an executor for Qwen API using chat completions, supporting chat_id preheating.
 type QwenExecutor struct {
 	ClaudeExecutor
-	cfg           *config.Config
-	modelDisc     *QwenModelDiscovery
-	pools         map[string]*preheatQueue
-	preheatMu     sync.Mutex
-	createChatIDF func(ctx context.Context, auth *cliproxyauth.Auth) (string, error) // For testing overrides
+	cfg             *config.Config
+	modelDisc       *QwenModelDiscovery
+	pools           map[string]*preheatQueue
+	preheatMu       sync.Mutex
+	createChatIDF   func(ctx context.Context, auth *cliproxyauth.Auth) (string, error) // For testing overrides
+	antiBlockConfig helps.AntiBlockConfig
 }
 
 // NewQwenExecutor creates a new Qwen executor.
 func NewQwenExecutor(cfg *config.Config) *QwenExecutor {
 	qwenauth.InitSsxmodManager()
 	e := &QwenExecutor{
-		cfg:       cfg,
-		modelDisc: GetQwenModelDiscovery(cfg),
-		pools:     make(map[string]*preheatQueue),
+		cfg:             cfg,
+		modelDisc:       GetQwenModelDiscovery(cfg),
+		pools:           make(map[string]*preheatQueue),
+		antiBlockConfig: helps.DefaultAntiBlockConfig(),
 	}
 	return e
 }
@@ -215,6 +217,7 @@ func (e *QwenExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, req
 
 	// Apply all anti-detection headers
 	qwenauth.ApplyAllQwenHeaders(httpReq, token, qwenCookie(auth), true)
+	httpReq.Header.Set("User-Agent", helps.GetRandomUserAgent())
 
 	var attrs map[string]string
 	if auth != nil {
@@ -239,6 +242,10 @@ func (e *QwenExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, req
 		AuthType:  authType,
 		AuthValue: authValue,
 	})
+
+	// Anti-blocking: random delay before request
+	delay := helps.RandomDelay(e.antiBlockConfig.MinDelay, e.antiBlockConfig.MaxDelay)
+	time.Sleep(delay)
 
 	// Use Chrome TLS fingerprint (utls) to bypass proxy TLS inspection for chat.qwen.ai.
 	httpClient := helps.NewUtlsHTTPClient(ctx, e.cfg, auth, 0)
@@ -550,6 +557,7 @@ func (e *QwenExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Aut
 
 	// Apply all anti-detection headers
 	qwenauth.ApplyAllQwenHeaders(httpReq, token, qwenCookie(auth), true)
+	httpReq.Header.Set("User-Agent", helps.GetRandomUserAgent())
 
 	var attrs map[string]string
 	if auth != nil {
@@ -577,6 +585,10 @@ func (e *QwenExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Aut
 		AuthType:  authType,
 		AuthValue: authValue,
 	})
+
+	// Anti-blocking: random delay before request
+	delay := helps.RandomDelay(e.antiBlockConfig.MinDelay, e.antiBlockConfig.MaxDelay)
+	time.Sleep(delay)
 
 	// Use Chrome TLS fingerprint (utls) to bypass proxy TLS inspection for chat.qwen.ai.
 	httpClient := helps.NewUtlsHTTPClient(ctx, e.cfg, auth, 0)
