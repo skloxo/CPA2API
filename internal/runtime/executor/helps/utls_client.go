@@ -2,6 +2,7 @@ package helps
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"net/http"
 	"strings"
@@ -17,13 +18,21 @@ import (
 	"golang.org/x/net/proxy"
 )
 
+type cachedConn struct {
+	conn       *http2.ClientConn
+	lastActive time.Time
+}
+
 // utlsRoundTripper implements http.RoundTripper using utls with Chrome fingerprint
 // to bypass Cloudflare's TLS fingerprinting on Anthropic domains.
+const utlsMaxConns = 100
+
 type utlsRoundTripper struct {
 	mu          sync.Mutex
-	connections map[string]*http2.ClientConn
+	connections map[string]*cachedConn
 	pending     map[string]*sync.Cond
 	dialer      proxy.Dialer
+	lastActive  time.Time
 }
 
 func newUtlsRoundTripper(proxyURL string) *utlsRoundTripper {
@@ -37,26 +46,34 @@ func newUtlsRoundTripper(proxyURL string) *utlsRoundTripper {
 		}
 	}
 	return &utlsRoundTripper{
-		connections: make(map[string]*http2.ClientConn),
+		connections: make(map[string]*cachedConn),
 		pending:     make(map[string]*sync.Cond),
 		dialer:      dialer,
+		lastActive:  time.Now(),
 	}
 }
 
 func (t *utlsRoundTripper) getOrCreateConnection(host, addr string) (*http2.ClientConn, error) {
 	t.mu.Lock()
 
-	if h2Conn, ok := t.connections[host]; ok && h2Conn.CanTakeNewRequest() {
+	if cc, ok := t.connections[host]; ok && cc.conn.CanTakeNewRequest() {
+		cc.lastActive = time.Now()
 		t.mu.Unlock()
-		return h2Conn, nil
+		return cc.conn, nil
 	}
 
 	if cond, ok := t.pending[host]; ok {
 		cond.Wait()
-		if h2Conn, ok := t.connections[host]; ok && h2Conn.CanTakeNewRequest() {
+		if cc, ok := t.connections[host]; ok && cc.conn.CanTakeNewRequest() {
+			cc.lastActive = time.Now()
 			t.mu.Unlock()
-			return h2Conn, nil
+			return cc.conn, nil
 		}
+	}
+
+	if len(t.connections) >= utlsMaxConns {
+		t.mu.Unlock()
+		return nil, fmt.Errorf("utls: connection pool full (%d/%d) for %s", len(t.connections), utlsMaxConns, host)
 	}
 
 	cond := sync.NewCond(&t.mu)
@@ -75,7 +92,10 @@ func (t *utlsRoundTripper) getOrCreateConnection(host, addr string) (*http2.Clie
 		return nil, err
 	}
 
-	t.connections[host] = h2Conn
+	t.connections[host] = &cachedConn{
+		conn:       h2Conn,
+		lastActive: time.Now(),
+	}
 	return h2Conn, nil
 }
 
@@ -93,7 +113,9 @@ func (t *utlsRoundTripper) createConnection(host, addr string) (*http2.ClientCon
 		return nil, err
 	}
 
-	tr := &http2.Transport{}
+	tr := &http2.Transport{
+		ReadIdleTimeout: 30 * time.Second,
+	}
 	h2Conn, err := tr.NewClientConn(tlsConn)
 	if err != nil {
 		tlsConn.Close()
@@ -119,12 +141,19 @@ func (t *utlsRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) 
 	resp, err := h2Conn.RoundTrip(req)
 	if err != nil {
 		t.mu.Lock()
-		if cached, ok := t.connections[hostname]; ok && cached == h2Conn {
+		if cached, ok := t.connections[hostname]; ok && cached.conn == h2Conn {
 			delete(t.connections, hostname)
 		}
 		t.mu.Unlock()
 		return nil, err
 	}
+
+	t.mu.Lock()
+	if cached, ok := t.connections[hostname]; ok && cached.conn == h2Conn {
+		cached.lastActive = time.Now()
+	}
+	t.lastActive = time.Now()
+	t.mu.Unlock()
 
 	return resp, nil
 }
@@ -163,17 +192,57 @@ func getUtlsRoundTripper(proxyURL string) *utlsRoundTripper {
 	rt, ok := utlsRTs[proxyURL]
 	utlsRTsMu.RUnlock()
 	if ok {
+		rt.mu.Lock()
+		rt.lastActive = time.Now()
+		rt.mu.Unlock()
 		return rt
 	}
 
 	utlsRTsMu.Lock()
 	defer utlsRTsMu.Unlock()
 	if rt, ok = utlsRTs[proxyURL]; ok {
+		rt.mu.Lock()
+		rt.lastActive = time.Now()
+		rt.mu.Unlock()
 		return rt
 	}
 	rt = newUtlsRoundTripper(proxyURL)
 	utlsRTs[proxyURL] = rt
 	return rt
+}
+
+func init() {
+	go startUtlsScavenger()
+}
+
+func startUtlsScavenger() {
+	ticker := time.NewTicker(30 * time.Second)
+	for range ticker.C {
+		cleanIdleUtlsRTs()
+	}
+}
+
+func cleanIdleUtlsRTs() {
+	utlsRTsMu.Lock()
+	defer utlsRTsMu.Unlock()
+
+	now := time.Now()
+	idleTimeout := 90 * time.Second
+
+	for proxyURL, rt := range utlsRTs {
+		rt.mu.Lock()
+		for host, cc := range rt.connections {
+			if !cc.conn.CanTakeNewRequest() || now.Sub(cc.lastActive) > idleTimeout {
+				_ = cc.conn.Close()
+				delete(rt.connections, host)
+			}
+		}
+
+		if len(rt.connections) == 0 && len(rt.pending) == 0 && now.Sub(rt.lastActive) > idleTimeout {
+			delete(utlsRTs, proxyURL)
+		}
+		rt.mu.Unlock()
+	}
 }
 
 // NewUtlsHTTPClient creates an HTTP client using utls Chrome TLS fingerprint.

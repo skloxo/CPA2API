@@ -4,11 +4,26 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"unicode/utf8"
 
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
+
+var compiledPatternCache sync.Map
+
+func getCompiledPattern(pattern string) (*regexp.Regexp, error) {
+	if cached, ok := compiledPatternCache.Load(pattern); ok {
+		return cached.(*regexp.Regexp), nil
+	}
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return nil, err
+	}
+	compiledPatternCache.Store(pattern, re)
+	return re, nil
+}
 
 // zeroWidthSpace is the Unicode zero-width space character used for obfuscation.
 const zeroWidthSpace = "\u200B"
@@ -50,7 +65,7 @@ func BuildSensitiveWordMatcher(words []string) *SensitiveWordMatcher {
 	}
 
 	pattern := "(?i)" + strings.Join(escaped, "|")
-	re, err := regexp.Compile(pattern)
+	re, err := getCompiledPattern(pattern)
 	if err != nil {
 		return nil
 	}

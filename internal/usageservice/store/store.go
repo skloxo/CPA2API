@@ -185,8 +185,10 @@ func (s *Store) Close() error {
 func (s *Store) init() error {
 	statements := []string{
 		`pragma journal_mode = WAL`,
-		`pragma synchronous = FULL`,
+		`pragma synchronous = NORMAL`,
 		`pragma busy_timeout = 5000`,
+		`pragma cache_size = -64000`,
+		`pragma mmap_size = 268435456`,
 		`pragma foreign_keys = ON`,
 		`create table if not exists usage_events (
 			id integer primary key autoincrement,

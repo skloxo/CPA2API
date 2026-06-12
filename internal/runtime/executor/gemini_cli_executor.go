@@ -45,6 +45,11 @@ var geminiOAuthScopes = []string{
 	"https://www.googleapis.com/auth/userinfo.profile",
 }
 
+var (
+	retryAfterPattern     = regexp.MustCompile(`after\s+(\d+)s\.?`)
+	retryAfterHumanPattern = regexp.MustCompile(`after\s+((?:\d+h)?(?:\d+m)?(?:\d+s)?)\.?`)
+)
+
 // GeminiCLIExecutor talks to the Cloud Code Assist endpoint using OAuth credentials from auth metadata.
 type GeminiCLIExecutor struct {
 	cfg *config.Config
@@ -1018,16 +1023,14 @@ func parseRetryDelay(errorBody []byte) (*time.Duration, error) {
 	// Fallback: parse from error.message "Your quota will reset after Xs."
 	message := gjson.GetBytes(errorBody, "error.message").String()
 	if message != "" {
-		re := regexp.MustCompile(`after\s+(\d+)s\.?`)
-		if matches := re.FindStringSubmatch(message); len(matches) > 1 {
+		if matches := retryAfterPattern.FindStringSubmatch(message); len(matches) > 1 {
 			seconds, err := strconv.Atoi(matches[1])
 			if err == nil {
 				duration := time.Duration(seconds) * time.Second
 				return &duration, nil
 			}
 		}
-		reHuman := regexp.MustCompile(`after\s+((?:\d+h)?(?:\d+m)?(?:\d+s)?)\.?`)
-		if matches := reHuman.FindStringSubmatch(strings.ToLower(message)); len(matches) > 1 {
+		if matches := retryAfterHumanPattern.FindStringSubmatch(strings.ToLower(message)); len(matches) > 1 {
 			if duration, err := time.ParseDuration(matches[1]); err == nil && duration > 0 {
 				return &duration, nil
 			}

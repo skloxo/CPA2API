@@ -101,5 +101,11 @@ func buildProxyTransport(proxyURL string) *http.Transport {
 		log.Errorf("%v", errBuild)
 		return nil
 	}
+	transport.MaxIdleConns = 200
+	transport.MaxIdleConnsPerHost = 20
+	transport.IdleConnTimeout = 90 * time.Second
+	transport.TLSHandshakeTimeout = 10 * time.Second
+	transport.DisableKeepAlives = false
+	transport.MaxConnsPerHost = 100
 	return transport
 }
