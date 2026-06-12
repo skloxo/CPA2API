@@ -68,3 +68,11 @@ config-dev.yaml
 implementation_plan.md
 task.md
 walkthrough.md
+dev_handover.md
+test_stream.sh
+
+# Internal documentation (not uploaded to git)
+docs/internal/
+
+# Auth data (contains sensitive information)
+auth/
