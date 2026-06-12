@@ -608,6 +608,14 @@ func (h *Handler) buildAuthFileEntry(auth *coreauth.Auth) gin.H {
 	if websockets, ok := authWebsocketsValue(auth); ok {
 		entry["websockets"] = websockets
 	}
+	// Expose proxy_url from Metadata for Qwen accounts
+	if auth.Metadata != nil {
+		if proxyURL, ok := auth.Metadata["proxy_url"].(string); ok {
+			if trimmed := strings.TrimSpace(proxyURL); trimmed != "" {
+				entry["proxy_url"] = trimmed
+			}
+		}
+	}
 	return entry
 }
 
