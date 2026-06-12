@@ -154,6 +154,12 @@ export function AiProvidersOpenAIEditPage() {
         (file) => String(file.type ?? file.provider ?? '').toLowerCase() === 'qwen'
       );
       setQwenCredentials(filtered);
+      // 初始化代理草稿状态
+      const drafts: Record<string, string> = {};
+      filtered.forEach((f: any) => {
+        drafts[f.name] = String(f.proxy_url ?? f.proxyUrl ?? '');
+      });
+      setQwenProxyDrafts(drafts);
     } catch (err) {
       console.error('Failed to load Qwen credentials', err);
       showNotification('加载 Qwen 凭证失败', 'error');
