@@ -46,7 +46,7 @@ var geminiOAuthScopes = []string{
 }
 
 var (
-	retryAfterPattern     = regexp.MustCompile(`after\s+(\d+)s\.?`)
+	retryAfterPattern      = regexp.MustCompile(`after\s+(\d+)s\.?`)
 	retryAfterHumanPattern = regexp.MustCompile(`after\s+((?:\d+h)?(?:\d+m)?(?:\d+s)?)\.?`)
 )
 
