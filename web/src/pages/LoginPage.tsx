@@ -131,7 +131,7 @@ export function LoginPage() {
   const storedRememberPassword = useAuthStore((state) => state.rememberPassword);
   const setUsageServiceConfig = useUsageServiceStore((state) => state.setUsageServiceConfig);
 
-  const [apiBase, setApiBase] = useState('');
+  const [apiBase, setApiBase] = useState(() => detectApiBaseFromLocation());
   const [managementKey, setManagementKey] = useState('');
   const [showCustomBase, setShowCustomBase] = useState(false);
   const [showKey, setShowKey] = useState(false);
