@@ -337,7 +337,7 @@ export const usageServiceApi = {
 
   setup: async (base: string, payload: UsageServiceSetupRequest): Promise<void> => {
     await withUsageServiceError(async () => {
-      await axios.post(buildUrl(base, '/v0/management/setup'), payload, {
+      await axios.post(buildUrl(base, '/usage-service/setup'), payload, {
         timeout: USAGE_SERVICE_TIMEOUT_MS,
       });
     });
