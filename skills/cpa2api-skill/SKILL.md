@@ -281,19 +281,19 @@ To maintain clarity and tracking across the private fork, we use a structured ve
 
 The following versions have been fully validated via E2E regression testing (100% PASS rate) and officially frozen for OpenClaw integration:
 
-- **Backend Engine (CPA2API)**: `v7.1.45-s.6` (Jun 2026) [CURRENT]
+- **Backend Engine (CPA2API)**: `v7.1.45-s.9` (Jun 2026) [CURRENT]
   - **Source Code Path**: `/home/skloxo/aho/openclaw/project/CPA/CPA2API`
   - **Production Deploy Path**: `/home/skloxo/services/cpa2api/` (independent of source code)
   - **Staging/Dev Port**: `9317` (cpa2api-dev container, via `docker-compose.dev.yml`)
-  - **Production Port**: `8317` (cli-proxy-api container, via `/home/skloxo/services/cpa2api/docker-compose.yml`)
+  - **Production Port**: `8317` (CPA2API8317 container, via `/home/skloxo/services/cpa2api/docker-compose.yml`)
   - **Key Change**: Deployment directory fully separated from source code directory.
-    Version controlled via `.env` (`CPA_VERSION=v7.1.45-s.6`). Upgrade = edit `.env` + `docker compose pull && up -d`.
+    Version controlled via `.env` (`CPA_VERSION=v7.1.45-s.9`). Upgrade = edit `.env` + `docker compose pull && up -d`.
   - **Verification Status**: E2E regression test PASS.
 
 - **Backend Engine (CPA2API)**: `v7.2.2-s.4` (May 2026) [FROZEN]
   - **Source Code Path**: `/home/skloxo/aho/openclaw/project/CPA/CPA2API`
   - **Staging/Dev Port**: `9317` (cpa2api-dev container)
-  - **Production Port**: `8317` (cli-proxy-api container)
+  - **Production Port**: `8317` (CPA2API8317 container)
   - **Validated Core Features**:
     - Qwen dynamic models discovery & excluded models filtering.
     - System info horizontal alignment.
@@ -389,9 +389,9 @@ vim config/config.yaml
 # 4. 创建 docker-compose.yml
 cat > docker-compose.yml <<EOF
 services:
-  cli-proxy-api:
+  CPA2API8317:
     image: eceasy/cli-proxy-api:latest
-    container_name: cli-proxy-api
+    container_name: CPA2API8317
     ports:
       - "8317:8317"
       - "8085:8085"
@@ -458,9 +458,9 @@ curl -H "Authorization: Bearer your-api-key" http://localhost:8317/v1/models
 
 ```yaml
 services:
-  cli-proxy-api:
+  CPA2API8317:
     image: ${CLI_PROXY_IMAGE:-eceasy/cli-proxy-api:latest}
-    container_name: cli-proxy-api
+    container_name: CPA2API8317
     environment:
       DEPLOY: ${DEPLOY:-}
     ports:
@@ -793,9 +793,9 @@ gemini
 
 ```yaml
 services:
-  cli-proxy-api:
+  CPA2API8317:
     image: eceasy/cli-proxy-api:latest
-    container_name: cli-proxy-api
+    container_name: CPA2API8317
     ports:
       - "8317:8317"
       - "8085:8085"
@@ -917,11 +917,11 @@ This Standard Operating Procedure (SOP) defines the mandatory lifecycle stages t
 *   **Mount Static Files**: Ensure the single-file built HTML in `/static/management.html` is correctly routed by the production server binary.
 *   **No-Cache Build**: Rebuild the production container without using cached layers to avoid outdated assets:
     ```bash
-    docker compose build --no-cache cli-proxy-api
+    docker compose build --no-cache CPA2API8317
     ```
 *   **Force-Recreate Container**: Redeploy the services with force-recreate to apply all environment variables and mount points:
     ```bash
-    docker compose up --force-recreate -d cli-proxy-api
+    docker compose up --force-recreate -d CPA2API8317
     ```
 *   **Data Safety Checks**: Ensure persistent databases (`cpa-manager-data`) are backed up via temporary alpine tarball command before executing recreation.
 
@@ -930,7 +930,7 @@ This Standard Operating Procedure (SOP) defines the mandatory lifecycle stages t
     - **NEVER** commit `config.yaml`, `config-dev.yaml`, `auths/*.json`, `*.sqlite`, or `*.log` to Git.
     - Always redact/use fake placeholders (e.g. `sk-xxxx`, `eyJhbGciOi`) for secrets in documents and code comments.
     - Check `git status` and `git diff` before pushing to ensure no sensitive data is leaked.
-*   **Tag Version**: Tag the validated commit with the defined custom patch format (e.g. `v7.1.45-s.6` for backend, `v1.3.3-s.1` for frontend).
+*   **Tag Version**: Tag the validated commit with the defined custom patch format (e.g. `v7.1.45-s.9` for backend, `v1.3.3-s.1` for frontend).
 *   **Push Tags**: Push tags to the upstream repository:
     ```bash
     git push origin <tag_name>
