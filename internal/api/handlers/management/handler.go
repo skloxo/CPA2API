@@ -187,6 +187,11 @@ func (h *Handler) Middleware() gin.HandlerFunc {
 				c.Next()
 				return
 			}
+			// For local clients, allow access without management key (local embedded mode)
+			if localClient {
+				c.Next()
+				return
+			}
 			// Block everything else, prompting the client to initialize/configure a password
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
 				"error":   "setup_required",

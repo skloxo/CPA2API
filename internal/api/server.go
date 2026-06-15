@@ -320,6 +320,9 @@ func NewServer(cfg *config.Config, authManager *auth.Manager, accessManager *sdk
 			uCfg.ManagementKey = envAdminPassword
 		} else if cfg.RemoteManagement.SecretKey != "" && !strings.HasPrefix(cfg.RemoteManagement.SecretKey, "$2a$") && !strings.HasPrefix(cfg.RemoteManagement.SecretKey, "$2b$") && !strings.HasPrefix(cfg.RemoteManagement.SecretKey, "$2y$") {
 			uCfg.ManagementKey = cfg.RemoteManagement.SecretKey
+		} else {
+			// Local embedded mode: use a placeholder key so usage service shows as configured
+			uCfg.ManagementKey = "local-embedded-mode"
 		}
 	}
 	uStore, errUStore := store.Open(uCfg.DBPath)
