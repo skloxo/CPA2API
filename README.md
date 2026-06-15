@@ -108,12 +108,12 @@ graph TD
 
 本项目采用 `git describe --tags --always --dirty` 动态生成版本号，便于追踪上游变更与本地定制：
 
-*   **开发版本**：`v7.1.45-s.9-20-g24f452b6-dirty`（自动生成，基于 git 历史）
+*   **开发版本**：`v7.1.45-s.9-25-gaf69da3c-dirty`（自动生成，基于 git 历史）
 *   **发布版本**：`v7.1.45-s.9`（通过 ldflags 注入，基于 git tag）
 *   **版本格式**：`v[UpstreamVersion]-s.[PatchVersion]-[commits]-g[hash][-dirty]`
     *   **`v7.1.45`**：同步并映射上游 [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) 官方发行版。
     *   **`-s.9`**：由 Skloxo 维护的专属定制补丁/优化版本。
-    *   **`-20-g24f452b6`**：距离最近 tag 的 commit 数量和 commit hash。
+    *   **`-25-gaf69da3c`**：距离最近 tag 的 commit 数量和 commit hash。
     *   **`-dirty`**：工作目录有未提交的修改。
 
 *   **查看当前版本**：
