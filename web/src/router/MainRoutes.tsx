@@ -10,6 +10,7 @@ import { AiProvidersGeminiEditPage } from '@/pages/AiProvidersGeminiEditPage';
 import { AiProvidersOpenAIEditLayout } from '@/pages/AiProvidersOpenAIEditLayout';
 import { AiProvidersOpenAIEditPage } from '@/pages/AiProvidersOpenAIEditPage';
 import { AiProvidersOpenAIModelsPage } from '@/pages/AiProvidersOpenAIModelsPage';
+import { ProvidersConfigPage } from '@/pages/ProvidersConfigPage';
 import { AiProvidersVertexEditPage } from '@/pages/AiProvidersVertexEditPage';
 import { AuthFilesPage } from '@/pages/AuthFilesPage';
 import { AuthFilesOAuthExcludedEditPage } from '@/pages/AuthFilesOAuthExcludedEditPage';
@@ -50,7 +51,7 @@ const mainRoutes = [
   { path: '/ai-providers/vertex/new', element: <AiProvidersVertexEditPage /> },
   { path: '/ai-providers/vertex/:index', element: <AiProvidersVertexEditPage /> },
   {
-    path: '/ai-providers/openai/new',
+    path: '/providers/new',
     element: <AiProvidersOpenAIEditLayout />,
     children: [
       { index: true, element: <AiProvidersOpenAIEditPage /> },
@@ -58,7 +59,7 @@ const mainRoutes = [
     ],
   },
   {
-    path: '/ai-providers/openai/:index',
+    path: '/providers/:index',
     element: <AiProvidersOpenAIEditLayout />,
     children: [
       { index: true, element: <AiProvidersOpenAIEditPage /> },
@@ -66,6 +67,7 @@ const mainRoutes = [
     ],
   },
   { path: '/ai-providers/ampcode', element: <AiProvidersAmpcodeEditPage /> },
+  { path: '/providers', element: <ProvidersConfigPage /> },
   { path: '/ai-providers', element: <AiProvidersPage /> },
   { path: '/ai-providers/*', element: <AiProvidersPage /> },
   { path: '/auth-files', element: <AuthFilesPage /> },

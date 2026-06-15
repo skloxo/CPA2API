@@ -6,7 +6,6 @@ import {
   ClaudeSection,
   CodexSection,
   GeminiSection,
-  OpenAISection,
   VertexSection,
   ProviderNav,
   useProviderRecentRequests,
@@ -17,16 +16,15 @@ import {
 } from '@/components/providers/utils';
 import { usePageTransitionLayer } from '@/components/common/PageTransitionLayer';
 import { useHeaderRefresh } from '@/hooks/useHeaderRefresh';
-import { ampcodeApi, providersApi, authFilesApi } from '@/services/api';
-import { useAuthStore, useConfigStore, useNotificationStore, useThemeStore } from '@/stores';
-import type { GeminiKeyConfig, OpenAIProviderConfig, ProviderKeyConfig, AuthFileItem } from '@/types';
+import { ampcodeApi, providersApi } from '@/services/api';
+import { useAuthStore, useConfigStore, useNotificationStore } from '@/stores';
+import type { GeminiKeyConfig, ProviderKeyConfig } from '@/types';
 import styles from './AiProvidersPage.module.scss';
 
 export function AiProvidersPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { showNotification, showConfirmation } = useNotificationStore();
-  const resolvedTheme = useThemeStore((state) => state.resolvedTheme);
   const connectionStatus = useAuthStore((state) => state.connectionStatus);
 
   const config = useConfigStore((state) => state.config);
@@ -51,22 +49,7 @@ export function AiProvidersPage() {
   const [vertexConfigs, setVertexConfigs] = useState<ProviderKeyConfig[]>(
     () => config?.vertexApiKeys || []
   );
-  const [openaiProviders, setOpenaiProviders] = useState<OpenAIProviderConfig[]>(
-    () => config?.openaiCompatibility || []
-  );
-  const [qwenCredentials, setQwenCredentials] = useState<AuthFileItem[]>([]);
 
-  const loadQwenCredentials = useCallback(async () => {
-    try {
-      const res = await authFilesApi.list();
-      const filtered = (res.files || []).filter(
-        (file) => String(file.type ?? file.provider ?? '').toLowerCase() === 'qwen'
-      );
-      setQwenCredentials(filtered);
-    } catch (err) {
-      console.error('Failed to load Qwen credentials in provider list', err);
-    }
-  }, []);
 
   const [configSwitchingKey, setConfigSwitchingKey] = useState<string | null>(null);
 
@@ -93,12 +76,10 @@ export function AiProvidersPage() {
     }
     setError('');
     try {
-      const [configResult, vertexResult, ampcodeResult, openaiResult] = await Promise.allSettled([
+      const [configResult, vertexResult, ampcodeResult] = await Promise.allSettled([
         fetchConfig(),
         providersApi.getVertexConfigs(),
         ampcodeApi.getAmpcode(),
-        providersApi.getOpenAIProviders(),
-        loadQwenCredentials(),
       ]);
 
       if (configResult.status !== 'fulfilled') {
@@ -110,7 +91,6 @@ export function AiProvidersPage() {
       setCodexConfigs(data?.codexApiKeys || []);
       setClaudeConfigs(data?.claudeApiKeys || []);
       setVertexConfigs(data?.vertexApiKeys || []);
-      setOpenaiProviders(data?.openaiCompatibility || []);
 
       if (vertexResult.status === 'fulfilled') {
         setVertexConfigs(vertexResult.value || []);
@@ -121,12 +101,6 @@ export function AiProvidersPage() {
       if (ampcodeResult.status === 'fulfilled') {
         updateConfigValue('ampcode', ampcodeResult.value);
         clearCache('ampcode');
-      }
-
-      if (openaiResult.status === 'fulfilled') {
-        setOpenaiProviders(openaiResult.value || []);
-        updateConfigValue('openai-compatibility', openaiResult.value || []);
-        clearCache('openai-compatibility');
       }
     } catch (err: unknown) {
       const message = getErrorMessage(err) || t('notification.refresh_failed');
@@ -145,21 +119,18 @@ export function AiProvidersPage() {
   useEffect(() => {
     if (!isCurrentLayer) return;
     void loadRecentRequests().catch(() => {});
-    void loadQwenCredentials();
-  }, [isCurrentLayer, loadRecentRequests, loadQwenCredentials]);
+  }, [isCurrentLayer, loadRecentRequests]);
 
   useEffect(() => {
     if (config?.geminiApiKeys) setGeminiKeys(config.geminiApiKeys);
     if (config?.codexApiKeys) setCodexConfigs(config.codexApiKeys);
     if (config?.claudeApiKeys) setClaudeConfigs(config.claudeApiKeys);
     if (config?.vertexApiKeys) setVertexConfigs(config.vertexApiKeys);
-    if (config?.openaiCompatibility) setOpenaiProviders(config.openaiCompatibility);
   }, [
     config?.geminiApiKeys,
     config?.codexApiKeys,
     config?.claudeApiKeys,
     config?.vertexApiKeys,
-    config?.openaiCompatibility,
   ]);
 
   const handleRecentRequestsRefresh = useCallback(async () => {
@@ -306,37 +277,7 @@ export function AiProvidersPage() {
     }
   };
 
-  const setOpenAIProviderEnabled = async (index: number, enabled: boolean) => {
-    const current = openaiProviders[index];
-    if (!current) return;
 
-    const switchingKey = `openai:${current.name}:${index}`;
-    setConfigSwitchingKey(switchingKey);
-
-    const previousList = openaiProviders;
-    const nextItem: OpenAIProviderConfig = { ...current, disabled: !enabled };
-    const nextList = previousList.map((item, idx) => (idx === index ? nextItem : item));
-
-    setOpenaiProviders(nextList);
-    updateConfigValue('openai-compatibility', nextList);
-    clearCache('openai-compatibility');
-
-    try {
-      await providersApi.updateOpenAIProviderDisabled(index, !enabled);
-      showNotification(
-        enabled ? t('notification.config_enabled') : t('notification.config_disabled'),
-        'success'
-      );
-    } catch (err: unknown) {
-      const message = getErrorMessage(err);
-      setOpenaiProviders(previousList);
-      updateConfigValue('openai-compatibility', previousList);
-      clearCache('openai-compatibility');
-      showNotification(`${t('notification.update_failed')}: ${message}`, 'error');
-    } finally {
-      setConfigSwitchingKey(null);
-    }
-  };
 
   const deleteProviderEntry = async (type: 'codex' | 'claude', index: number) => {
     const source = type === 'codex' ? codexConfigs : claudeConfigs;
@@ -396,29 +337,7 @@ export function AiProvidersPage() {
     });
   };
 
-  const deleteOpenai = async (index: number) => {
-    const entry = openaiProviders[index];
-    if (!entry) return;
-    showConfirmation({
-      title: t('ai_providers.openai_delete_title', { defaultValue: 'Delete OpenAI Provider' }),
-      message: t('ai_providers.openai_delete_confirm'),
-      variant: 'danger',
-      confirmText: t('common.confirm'),
-      onConfirm: async () => {
-        try {
-          await providersApi.deleteOpenAIProvider(entry.name);
-          const next = openaiProviders.filter((_, idx) => idx !== index);
-          setOpenaiProviders(next);
-          updateConfigValue('openai-compatibility', next);
-          clearCache('openai-compatibility');
-          showNotification(t('notification.openai_provider_deleted'), 'success');
-        } catch (err: unknown) {
-          const message = getErrorMessage(err);
-          showNotification(`${t('notification.delete_failed')}: ${message}`, 'error');
-        }
-      },
-    });
-  };
+
 
   return (
     <div className={styles.container}>
@@ -492,21 +411,7 @@ export function AiProvidersPage() {
           />
         </div>
 
-        <div id="provider-openai">
-          <OpenAISection
-            configs={openaiProviders}
-            qwenCredentials={qwenCredentials}
-            usageByProvider={usageByProvider}
-            loading={loading}
-            disableControls={disableControls}
-            isSwitching={isSwitching}
-            resolvedTheme={resolvedTheme}
-            onAdd={() => openEditor('/ai-providers/openai/new')}
-            onEdit={(index) => openEditor(`/ai-providers/openai/${index}`)}
-            onDelete={deleteOpenai}
-            onToggle={(index, enabled) => void setOpenAIProviderEnabled(index, enabled)}
-          />
-        </div>
+
       </div>
 
       <ProviderNav />

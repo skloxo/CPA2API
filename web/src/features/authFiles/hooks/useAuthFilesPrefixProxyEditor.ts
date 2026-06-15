@@ -225,10 +225,13 @@ const buildAuthFileFieldsPatch = (
     patch.prefix = nextPrefix;
   }
 
-  const originalProxyURL = normalizeTextField(original.proxy_url);
-  const nextProxyURL = editor.proxyUrl.trim();
-  if (nextProxyURL !== originalProxyURL) {
-    patch.proxy_url = nextProxyURL;
+  // Skip proxy_url for Qwen - it's managed at Provider level
+  if (editor.providerKey !== 'qwen') {
+    const originalProxyURL = normalizeTextField(original.proxy_url);
+    const nextProxyURL = editor.proxyUrl.trim();
+    if (nextProxyURL !== originalProxyURL) {
+      patch.proxy_url = nextProxyURL;
+    }
   }
 
   const originalPriority = parsePriorityValue(original.priority);

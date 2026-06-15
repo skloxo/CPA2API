@@ -5,6 +5,7 @@ cli-proxy-api
 # Configuration
 config.yaml
 .env
+.env.local
 
 # Docker Compose (deployment files live in /home/skloxo/services/cpa2api/, not here)
 docker-compose.yml
@@ -55,6 +56,20 @@ _bmad-output/*
 .DS_Store
 ._*
 .gocache/
+
+# Windows
+Thumbs.db
+
+# SQLite
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+
+# Node
+node_modules/
+
+# Build output
+web/dist/
 
 # Local custom ignores
 CPA2API

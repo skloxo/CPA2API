@@ -396,6 +396,7 @@ export function MainLayout() {
     { path: '/', label: t('nav.dashboard'), icon: sidebarIcons.dashboard },
     { path: '/config', label: t('nav.config_management'), icon: sidebarIcons.config },
     { path: '/ai-providers', label: t('nav.ai_providers'), icon: sidebarIcons.aiProviders },
+    { path: '/providers', label: t('nav.providers_config'), icon: sidebarIcons.aiProviders },
     { path: '/auth-files', label: t('nav.auth_files'), icon: sidebarIcons.authFiles },
     { path: '/oauth', label: t('nav.oauth', { defaultValue: 'OAuth' }), icon: sidebarIcons.oauth },
     { path: '/quota', label: t('nav.quota_management'), icon: sidebarIcons.quota },
@@ -422,8 +423,15 @@ export function MainLayout() {
         if (normalizedPath.startsWith('/ai-providers/claude')) return aiProvidersIndex + 0.3;
         if (normalizedPath.startsWith('/ai-providers/vertex')) return aiProvidersIndex + 0.4;
         if (normalizedPath.startsWith('/ai-providers/ampcode')) return aiProvidersIndex + 0.5;
-        if (normalizedPath.startsWith('/ai-providers/openai')) return aiProvidersIndex + 0.6;
         return aiProvidersIndex + 0.05;
+      }
+    }
+
+    const providersIndex = navOrder.indexOf('/providers');
+    if (providersIndex !== -1) {
+      if (normalizedPath === '/providers') return providersIndex;
+      if (normalizedPath.startsWith('/providers/')) {
+        return providersIndex + 0.1;
       }
     }
 
@@ -458,8 +466,11 @@ export function MainLayout() {
       pathname === '/auth-files' || pathname.startsWith('/auth-files/');
     const isAiProviders = (pathname: string) =>
       pathname === '/ai-providers' || pathname.startsWith('/ai-providers/');
+    const isProviders = (pathname: string) =>
+      pathname === '/providers' || pathname.startsWith('/providers/');
     if (isAuthFiles(from) && isAuthFiles(to)) return 'ios';
     if (isAiProviders(from) && isAiProviders(to)) return 'ios';
+    if (isProviders(from) && isProviders(to)) return 'ios';
     return 'vertical';
   }, []);
 

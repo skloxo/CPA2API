@@ -35,4 +35,6 @@ import (
 	_ "github.com/router-for-me/CLIProxyAPI/v7/internal/translator/antigravity/openai/responses"
 
 	_ "github.com/router-for-me/CLIProxyAPI/v7/internal/translator/qwen"
+
+	_ "github.com/router-for-me/CLIProxyAPI/v7/internal/translator/canonical"
 )

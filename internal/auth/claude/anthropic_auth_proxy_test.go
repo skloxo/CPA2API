@@ -15,8 +15,8 @@ func TestNewClaudeAuthWithProxyURL_OverrideDirectTakesPrecedence(t *testing.T) {
 	if !ok || transport == nil {
 		t.Fatalf("expected utlsRoundTripper, got %T", auth.httpClient.Transport)
 	}
-	if transport.dialer != proxy.Direct {
-		t.Fatalf("expected proxy.Direct, got %T", transport.dialer)
+	if transport.cache.dialer != proxy.Direct {
+		t.Fatalf("expected proxy.Direct, got %T", transport.cache.dialer)
 	}
 }
 
@@ -27,7 +27,7 @@ func TestNewClaudeAuthWithProxyURL_OverrideProxyAppliedWithoutConfig(t *testing.
 	if !ok || transport == nil {
 		t.Fatalf("expected utlsRoundTripper, got %T", auth.httpClient.Transport)
 	}
-	if transport.dialer == proxy.Direct {
-		t.Fatalf("expected proxy dialer, got %T", transport.dialer)
+	if transport.cache.dialer == proxy.Direct {
+		t.Fatalf("expected proxy dialer, got %T", transport.cache.dialer)
 	}
 }

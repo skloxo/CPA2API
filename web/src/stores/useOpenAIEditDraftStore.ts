@@ -74,6 +74,7 @@ const buildEmptyForm = (): OpenAIFormState => ({
   apiKeyEntries: [buildApiKeyEntry()],
   modelEntries: [{ name: '', alias: '' }],
   testModel: undefined,
+  proxyUrl: undefined,
 });
 
 const buildEmptyDraft = (): OpenAIEditDraft => ({

@@ -1,6 +1,37 @@
-# AGENTS.md
+# AGENTS.md - CPA2API Development Spec
 
 Go 1.26+ proxy server providing OpenAI/Gemini/Claude/Codex compatible APIs with OAuth and round-robin load balancing.
+
+## Project Rules
+- Auto git commit after code changes (no auto push)
+- Docker service auto-deploy
+- Use `go test ./...` to run tests
+- Use `go build ./cmd/server` to verify compilation
+- Keep code concise, comments in English
+- All changes must have test coverage
+
+## Workflow
+- Requirements → Split → Execute → Test → Build verify → Verify → Deliver
+- Multi-step tasks use task tool to track
+- Complex tasks use actor subagent
+
+## Security Rules
+- Never leak sensitive info (API Keys, Token, passwords)
+- Say "I don't know" when uncertain
+- Confirm before major operations
+
+## Compatibility Rules
+- New version must be backward compatible with old config.yaml format
+- New version must be backward compatible with old auths/*.json format
+- New version must be backward compatible with old usage.sqlite data
+- New version must be backward compatible with old log format
+- Config changes must have defaults and backward-compatible handling
+
+## Testing Rules
+- Run `go test ./...` after every code change
+- Run `go build ./cmd/server` after every code change to verify compilation
+- New features must have unit tests
+- Must pass all tests before release
 
 ## Repository
 - Backend Upstream: https://github.com/router-for-me/CLIProxyAPI

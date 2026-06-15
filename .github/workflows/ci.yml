@@ -2,9 +2,12 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
   pull_request:
-    branches: [main]
+    branches: [main, dev]
+
+permissions:
+  contents: read
 
 jobs:
   test:
@@ -13,10 +16,16 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Refresh models catalog
+        run: |
+          git fetch --depth 1 https://github.com/router-for-me/models.git main
+          git show FETCH_HEAD:models.json > internal/registry/models/models.json
+
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.26'
+          go-version-file: go.mod
+          cache: true
 
       - name: Run tests
         run: go test ./...
@@ -33,13 +42,13 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.26'
+          go-version-file: go.mod
+          cache: true
 
       - name: Check gofmt
         run: |
           if [ -n "$(gofmt -l .)" ]; then
-            echo "❌ Code not formatted. Run 'gofmt -w .'"
+            echo "Code not formatted. Run 'gofmt -w .'"
             gofmt -l .
             exit 1
           fi
-          echo "✅ Code formatting OK"

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"golang.org/x/net/proxy"
 )
@@ -72,10 +73,18 @@ func Parse(raw string) (Setting, error) {
 }
 
 func cloneDefaultTransport() *http.Transport {
+	var clone *http.Transport
 	if transport, ok := http.DefaultTransport.(*http.Transport); ok && transport != nil {
-		return transport.Clone()
+		clone = transport.Clone()
+	} else {
+		clone = &http.Transport{}
 	}
-	return &http.Transport{}
+	clone.MaxIdleConns = 100
+	clone.MaxIdleConnsPerHost = 100
+	if clone.IdleConnTimeout == 0 {
+		clone.IdleConnTimeout = 90 * time.Second
+	}
+	return clone
 }
 
 // NewDirectTransport returns a transport that bypasses environment proxies.

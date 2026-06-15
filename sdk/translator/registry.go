@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 
+	"github.com/router-for-me/CLIProxyAPI/v7/sdk/translator/canonical"
 	log "github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -50,6 +51,28 @@ func (r *Registry) TranslateRequest(from, to Format, model string, rawJSON []byt
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
+	if UseCanonical {
+		p, okParser := canonical.GetParser(from.String())
+		e, okEmitter := canonical.GetEmitter(to.String())
+		if okParser && okEmitter {
+			unifiedReq, err := p(rawJSON)
+			if err == nil {
+				if model != "" {
+					unifiedReq.Model = model
+				}
+				unifiedReq.Stream = stream
+				translated, err := e(unifiedReq)
+				if err == nil {
+					return translated
+				} else {
+					log.Warnf("canonical: failed to emit request from IR: %v", err)
+				}
+			} else {
+				log.Warnf("canonical: failed to parse request to IR: %v", err)
+			}
+		}
+	}
+
 	if byTarget, ok := r.requests[from]; ok {
 		if fn, isOk := byTarget[to]; isOk && fn != nil {
 			return fn(model, rawJSON, stream)
@@ -70,6 +93,19 @@ func (r *Registry) HasResponseTransformer(from, to Format) bool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
+	if UseCanonical {
+		_, okP := canonical.GetResponseParser(from.String())
+		_, okE := canonical.GetResponseEmitter(to.String())
+		if okP && okE {
+			return true
+		}
+		_, okSP := canonical.GetStreamEventParser(from.String())
+		_, okSE := canonical.GetStreamEventEmitter(to.String())
+		if okSP && okSE {
+			return true
+		}
+	}
+
 	if byTarget, ok := r.responses[from]; ok {
 		if _, isOk := byTarget[to]; isOk {
 			return true
@@ -83,6 +119,29 @@ func (r *Registry) TranslateStream(ctx context.Context, from, to Format, model s
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
+	if UseCanonical {
+		p, okParser := canonical.GetStreamEventParser(from.String())
+		e, okEmitter := canonical.GetStreamEventEmitter(to.String())
+		if okParser && okEmitter {
+			unifiedEvent, err := p(rawJSON)
+			if err == nil && unifiedEvent != nil {
+				if model != "" && unifiedEvent.FinishReason != "done_marker" {
+					unifiedEvent.Model = model
+				}
+				translated, err := e(unifiedEvent)
+				if err == nil {
+					return [][]byte{translated}
+				} else {
+					log.Warnf("canonical: failed to emit stream event from IR: %v", err)
+				}
+			} else if err != nil {
+				log.Warnf("canonical: failed to parse stream event to IR: %v", err)
+			} else {
+				return [][]byte{}
+			}
+		}
+	}
+
 	if byTarget, ok := r.responses[to]; ok {
 		if fn, isOk := byTarget[from]; isOk && fn.Stream != nil {
 			return fn.Stream(ctx, model, originalRequestRawJSON, requestRawJSON, rawJSON, param)
@@ -95,6 +154,27 @@ func (r *Registry) TranslateStream(ctx context.Context, from, to Format, model s
 func (r *Registry) TranslateNonStream(ctx context.Context, from, to Format, model string, originalRequestRawJSON, requestRawJSON, rawJSON []byte, param *any) []byte {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+
+	if UseCanonical {
+		p, okParser := canonical.GetResponseParser(from.String())
+		e, okEmitter := canonical.GetResponseEmitter(to.String())
+		if okParser && okEmitter {
+			unifiedResp, err := p(rawJSON)
+			if err == nil {
+				if model != "" {
+					unifiedResp.Model = model
+				}
+				translated, err := e(unifiedResp)
+				if err == nil {
+					return translated
+				} else {
+					log.Warnf("canonical: failed to emit response from IR: %v", err)
+				}
+			} else {
+				log.Warnf("canonical: failed to parse response to IR: %v", err)
+			}
+		}
+	}
 
 	if byTarget, ok := r.responses[to]; ok {
 		if fn, isOk := byTarget[from]; isOk && fn.NonStream != nil {
@@ -116,6 +196,9 @@ func (r *Registry) TranslateTokenCount(ctx context.Context, from, to Format, cou
 	}
 	return rawJSON
 }
+
+// UseCanonical is a package-level global toggle to enable the Canonical IR translation pipeline.
+var UseCanonical bool
 
 var defaultRegistry = NewRegistry()
 

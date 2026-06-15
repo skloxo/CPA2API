@@ -15,6 +15,7 @@ export interface OpenAIFormState {
   testModel?: string;
   modelEntries: ModelEntry[];
   apiKeyEntries: ApiKeyEntry[];
+  proxyUrl?: string;
 }
 
 export interface AmpcodeUpstreamApiKeyEntry {
