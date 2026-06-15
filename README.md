@@ -8,7 +8,7 @@
 [![Docker Image](https://img.shields.io/badge/Docker-eceasy/cli--proxy--api-blue?style=for-the-badge&logo=docker&logoColor=white)](https://hub.docker.com/r/eceasy/cli-proxy-api)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=for-the-badge)](CONTRIBUTING.md)
-[![Version](https://img.shields.io/badge/Version-v7.1.45--s.6-orange?style=for-the-badge)](#)
+[![Version](https://img.shields.io/badge/Version-dynamic-orange?style=for-the-badge)](#)
 
 </div>
 
@@ -106,11 +106,32 @@ graph TD
 
 ## 🏷️ 版本号规范
 
-本项目采用清晰的版本控制机制，便于追踪上游变更与本地定制：
-*   **格式**：`v[UpstreamVersion]-[SkloxoPatchVersion]`
-*   **示例**：`v7.1.45-s.6`
-    *   **前缀 `v7.1.45`**：同步并映射上游 [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) 官方发行版。
-    *   **后缀 `-s.1`**：由 Skloxo 维护的专属定制补丁/优化版本（如 Qwen 自定义 XML 标签绕过、高级流式心跳等特性的演进版本）。
+本项目采用 `git describe --tags --always --dirty` 动态生成版本号，便于追踪上游变更与本地定制：
+
+*   **开发版本**：`v7.1.45-s.9-20-g24f452b6-dirty`（自动生成，基于 git 历史）
+*   **发布版本**：`v7.1.45-s.9`（通过 ldflags 注入，基于 git tag）
+*   **版本格式**：`v[UpstreamVersion]-s.[PatchVersion]-[commits]-g[hash][-dirty]`
+    *   **`v7.1.45`**：同步并映射上游 [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) 官方发行版。
+    *   **`-s.9`**：由 Skloxo 维护的专属定制补丁/优化版本。
+    *   **`-20-g24f452b6`**：距离最近 tag 的 commit 数量和 commit hash。
+    *   **`-dirty`**：工作目录有未提交的修改。
+
+*   **查看当前版本**：
+    ```bash
+    # 运行程序时自动显示版本
+    go run ./cmd/server
+    
+    # 或通过 git describe 直接查看
+    git describe --tags --always --dirty
+    ```
+
+*   **Docker 构建时指定版本**：
+    ```bash
+    docker build --build-arg VERSION=$(git describe --tags --always --dirty) \
+                 --build-arg COMMIT=$(git rev-parse --short HEAD) \
+                 --build-arg BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ) \
+                 -t cpa2api:dev .
+    ```
 
 ---
 
@@ -161,8 +182,8 @@ version: '3.8'
 
 services:
   cli-proxy-api:
-    image: eceasy/cli-proxy-api:v7.1.45-s.6
-    container_name: cli-proxy-api
+    image: eceasy/cli-proxy-api:latest  # 或指定版本如 eceasy/cli-proxy-api:v7.1.45-s.9
+    container_name: CPA2API8317
     network_mode: host
     volumes:
       - ./config.yaml:/app/config.yaml
