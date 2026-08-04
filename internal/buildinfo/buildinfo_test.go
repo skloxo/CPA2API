@@ -8,12 +8,12 @@ import (
 
 func TestGitDescribe(t *testing.T) {
 	result := gitDescribe()
-	
+
 	// Should return a non-empty string
 	if result == "" {
 		t.Fatal("gitDescribe() returned empty string")
 	}
-	
+
 	// Should not contain newlines
 	if strings.Contains(result, "\n") {
 		t.Fatalf("gitDescribe() contains newline: %q", result)
@@ -33,7 +33,7 @@ func TestInitSetsBuildDate(t *testing.T) {
 	if BuildDate == "unknown" {
 		t.Fatal("BuildDate should not be 'unknown' after init")
 	}
-	
+
 	// Should be a valid RFC3339 timestamp
 	_, err := time.Parse(time.RFC3339, BuildDate)
 	if err != nil {

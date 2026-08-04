@@ -843,7 +843,7 @@ export function AiProvidersOpenAIEditPage() {
           {/* 表头 */}
           <div className={styles.keyTableHeader}>
             <div className={styles.keyTableColIndex} style={{ width: '40px' }}>#</div>
-            <div className={styles.keyTableColStatus} style={{ width: '60px' }}>测试状态</div>
+            <div className={styles.keyTableColStatus} style={{ width: '64px' }}>测试状态</div>
             <div className={styles.keyTableColKey}>账号 (Email)</div>
             <div className={styles.keyTableColProxy}>账号级代理 (优先走账号代理)</div>
             <div className={styles.keyTableColAction}>操作</div>
@@ -870,7 +870,7 @@ export function AiProvidersOpenAIEditPage() {
                   {/* 测试连接状态灯 */}
                   <div
                     className={styles.keyTableColStatus}
-                    style={{ width: '60px' }}
+                    style={{ width: '64px' }}
                     title={qwenTestStatuses[file.name]?.message || ''}
                   >
                     <StatusIcon status={testStatus} />
@@ -922,7 +922,7 @@ export function AiProvidersOpenAIEditPage() {
                       刷新
                     </Button>
                     <Button
-                      variant="ghost"
+                      variant="danger"
                       size="sm"
                       onClick={() => void handleQwenDelete(file.name)}
                       disabled={saving || disableControls}

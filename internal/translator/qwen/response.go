@@ -102,10 +102,13 @@ func ConvertQwenResponseToOpenAI(ctx context.Context, model string, originalRequ
 		}
 	}
 
-	// Extract content from either native root format or OpenAI choices delta path
+	// Extract content from either native root format, OpenAI choices delta path, or choices message path
 	content := result.Get("content").String()
 	if content == "" {
 		content = result.Get("choices.0.delta.content").String()
+	}
+	if content == "" {
+		content = result.Get("choices.0.message.content").String()
 	}
 	if content != "" && stateMap != nil {
 		stateMap["has_content"] = "true"

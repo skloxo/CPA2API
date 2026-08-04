@@ -33,6 +33,7 @@ import (
 	"github.com/google/uuid"
 	qwenauth "github.com/router-for-me/CLIProxyAPI/v7/internal/auth/qwen"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/registry"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/runtime/executor/helps"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/thinking"
 	qwenTranslator "github.com/router-for-me/CLIProxyAPI/v7/internal/translator/qwen"
@@ -205,6 +206,10 @@ func (e *QwenExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, req
 	if err != nil {
 		return resp, fmt.Errorf("qwen executor: failed to set chat_id in payload: %w", err)
 	}
+
+	// Qwen Web API strictly requires stream=true upstream
+	body, _ = sjson.SetBytes(body, "stream", true)
+
 	url := apiBase + "/api/v2/chat/completions?chat_id=" + chatID
 
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
@@ -214,6 +219,8 @@ func (e *QwenExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, req
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Accept", "text/event-stream")
 	httpReq.Header.Set("Accept-Encoding", "identity")
+	httpReq.Header.Set("Connection", "keep-alive")
+	httpReq.Header.Set("Cache-Control", "no-cache")
 
 	// Apply all anti-detection headers
 	qwenauth.ApplyAllQwenHeaders(httpReq, token, qwenCookie(auth), true)
@@ -272,6 +279,16 @@ func (e *QwenExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, req
 		b, _ := io.ReadAll(decodedBody)
 		helps.AppendAPIResponseChunk(ctx, e.cfg, b)
 		helps.LogWithRequestID(ctx).Debugf("request error, error status: %d, error message: %s", httpResp.StatusCode, helps.SummarizeErrorBody(httpResp.Header.Get("Content-Type"), b))
+		if auth != nil && auth.ID != "" {
+			isRateLimit, isAuthErr := isQwenRateLimitOrAuthError(httpResp.StatusCode, b)
+			if isRateLimit {
+				registry.GetGlobalRegistry().SetModelQuotaExceeded(auth.ID, req.Model)
+				helps.LogWithRequestID(ctx).Warnf("Qwen auth %s model %s rate limited (marked quota exceeded)", auth.ID, req.Model)
+			} else if isAuthErr {
+				registry.GetGlobalRegistry().SetModelQuotaExceeded(auth.ID, "")
+				helps.LogWithRequestID(ctx).Warnf("Qwen auth %s expired/unauthorized (marked quota exceeded)", auth.ID)
+			}
+		}
 		err = statusErr{code: httpResp.StatusCode, msg: string(b)}
 		return resp, err
 	}
@@ -373,6 +390,13 @@ func (e *QwenExecutor) collectStreamResponse(
 								acc.Arguments.WriteString(args)
 							}
 						}
+					}
+				}
+				msg := choices.Array()[0].Get("message")
+				if msg.Exists() {
+					content := msg.Get("content").String()
+					if content != "" {
+						fullContent.WriteString(content)
 					}
 				}
 			}
@@ -614,6 +638,16 @@ func (e *QwenExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Aut
 		helps.LogWithRequestID(ctx).Debugf("request error, error status: %d, error message: %s", httpResp.StatusCode, helps.SummarizeErrorBody(httpResp.Header.Get("Content-Type"), b))
 		if errClose := decodedBody.Close(); errClose != nil {
 			log.Errorf("qwen executor: close response body error: %v", errClose)
+		}
+		if auth != nil && auth.ID != "" {
+			isRateLimit, isAuthErr := isQwenRateLimitOrAuthError(httpResp.StatusCode, b)
+			if isRateLimit {
+				registry.GetGlobalRegistry().SetModelQuotaExceeded(auth.ID, req.Model)
+				helps.LogWithRequestID(ctx).Warnf("Qwen auth %s model %s rate limited (marked quota exceeded)", auth.ID, req.Model)
+			} else if isAuthErr {
+				registry.GetGlobalRegistry().SetModelQuotaExceeded(auth.ID, "")
+				helps.LogWithRequestID(ctx).Warnf("Qwen auth %s expired/unauthorized (marked quota exceeded)", auth.ID)
+			}
 		}
 		err = statusErr{code: httpResp.StatusCode, msg: string(b)}
 		return nil, err
@@ -1094,4 +1128,31 @@ func buildQwenFinishSSEChunk(model string) []byte {
 // buildQwenDoneChunk creates the final [DONE] marker chunk.
 func buildQwenDoneChunk() []byte {
 	return []byte("data: [DONE]\n\n")
+}
+
+// isQwenRateLimitOrAuthError evaluates HTTP status codes and response bodies for Qwen Rate-Limit or Auth errors.
+func isQwenRateLimitOrAuthError(statusCode int, body []byte) (isRateLimit bool, isAuthError bool) {
+	if statusCode == 429 {
+		return true, false
+	}
+	if statusCode == 401 {
+		return false, true
+	}
+	bodyStr := strings.ToLower(string(body))
+	if strings.Contains(bodyStr, "rate limit") ||
+		strings.Contains(bodyStr, "frequency limit") ||
+		strings.Contains(bodyStr, "quotaexceeded") ||
+		strings.Contains(bodyStr, "too many requests") ||
+		strings.Contains(bodyStr, "frequent_request") ||
+		strings.Contains(bodyStr, "429") {
+		return true, false
+	}
+	if strings.Contains(bodyStr, "token expired") ||
+		strings.Contains(bodyStr, "unauthorized") ||
+		strings.Contains(bodyStr, "invalid token") ||
+		strings.Contains(bodyStr, "login required") ||
+		strings.Contains(bodyStr, "auth_failed") {
+		return false, true
+	}
+	return false, false
 }

@@ -720,4 +720,3 @@ func normalizeCollectionNodeStyles(node *yaml.Node) {
 		// Scalars keep their existing style to preserve quoting
 	}
 }
-

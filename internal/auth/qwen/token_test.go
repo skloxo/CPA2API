@@ -186,14 +186,14 @@ func TestSanitizeEmail(t *testing.T) {
 
 func TestSetMetadata(t *testing.T) {
 	storage := &QwenTokenStorage{}
-	
+
 	meta := map[string]any{
 		"key1": "value1",
 		"key2": 42,
 	}
-	
+
 	storage.SetMetadata(meta)
-	
+
 	if storage.Metadata == nil {
 		t.Fatal("Metadata should not be nil after SetMetadata")
 	}

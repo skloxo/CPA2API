@@ -186,6 +186,11 @@ func ConvertOpenAIRequestToQwen(model string, rawJSON []byte, stream bool) []byt
 			systemParts = nil // only merge once
 		}
 
+		// Skip empty assistant messages with no content or files to preserve tree validity
+		if role == "assistant" && strings.TrimSpace(contentStr) == "" && len(files) == 0 {
+			continue
+		}
+
 		processedMessages = append(processedMessages, msgInfo{
 			role:    role,
 			content: contentStr,

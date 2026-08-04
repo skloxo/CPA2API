@@ -191,6 +191,7 @@ func (d *QwenModelDiscovery) refreshModels(ctx context.Context) {
 	registry.RegisterDiscoveredModels("qwen", models)
 
 	models = applyQwenModelAlias(cfg, models)
+	models = filterQwenModelsByConfiguredWhitelist(cfg, models)
 
 	// Filter out excluded Qwen models based on OAuthExcludedModels
 	if cfg != nil && len(cfg.OAuthExcludedModels) > 0 {
@@ -219,9 +220,112 @@ func (d *QwenModelDiscovery) refreshModels(ctx context.Context) {
 	d.lastModels = models
 	d.mu.Unlock()
 
-	// Register with global registry
-	registry.GetGlobalRegistry().RegisterClient(qwenModelsClientID, "qwen", models)
-	log.Infof("qwen model discovery: registered %d models", len(models))
+	// Register with global registry only if user has not set explicit model restrictions.
+	// If explicit models are configured, unregister qwen-dynamic so only exact user models are exposed.
+	if hasExplicitQwenConfiguredModels(cfg) {
+		registry.GetGlobalRegistry().UnregisterClient(qwenModelsClientID)
+		log.Infof("qwen model discovery: restricted to %d configured models, qwen-dynamic un-registered", len(models))
+	} else {
+		registry.GetGlobalRegistry().RegisterClient(qwenModelsClientID, "qwen", models)
+		log.Infof("qwen model discovery: registered %d default models", len(models))
+	}
+}
+
+func hasExplicitQwenConfiguredModels(cfg *config.Config) bool {
+	if cfg == nil || len(cfg.OpenAICompatibility) == 0 {
+		return false
+	}
+	for i := range cfg.OpenAICompatibility {
+		compat := &cfg.OpenAICompatibility[i]
+		if compat.Disabled {
+			continue
+		}
+		if strings.EqualFold(compat.Name, "qwen") || strings.EqualFold(compat.BaseURL, "qwen") {
+			if len(compat.Models) > 0 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// filterQwenModelsByConfiguredWhitelist filters Qwen models if the user configured an explicit models list
+// for the Qwen OpenAICompatibility entry (e.g. only qwen3.7-plus and qwen3.8-max).
+func filterQwenModelsByConfiguredWhitelist(cfg *config.Config, models []*registry.ModelInfo) []*registry.ModelInfo {
+	if cfg == nil || len(cfg.OpenAICompatibility) == 0 {
+		return models
+	}
+
+	var targetModels []config.OpenAICompatibilityModel
+	for i := range cfg.OpenAICompatibility {
+		compat := &cfg.OpenAICompatibility[i]
+		if compat.Disabled {
+			continue
+		}
+		if strings.EqualFold(compat.Name, "qwen") || strings.EqualFold(compat.BaseURL, "qwen") {
+			if len(compat.Models) > 0 {
+				targetModels = compat.Models
+				break
+			}
+		}
+	}
+
+	if len(targetModels) == 0 {
+		return models
+	}
+
+	allowedMap := make(map[string]struct{}, len(targetModels))
+	for _, m := range targetModels {
+		alias := strings.TrimSpace(m.Alias)
+		name := strings.TrimSpace(m.Name)
+		if alias != "" {
+			allowedMap[strings.ToLower(alias)] = struct{}{}
+		}
+		if name != "" {
+			allowedMap[strings.ToLower(name)] = struct{}{}
+		}
+	}
+
+	filtered := make([]*registry.ModelInfo, 0, len(targetModels))
+	seen := make(map[string]bool)
+
+	// Filter discovered models against allowed map
+	for _, m := range models {
+		if m == nil {
+			continue
+		}
+		id := strings.ToLower(strings.TrimSpace(m.ID))
+		if _, ok := allowedMap[id]; ok {
+			filtered = append(filtered, m)
+			seen[id] = true
+		}
+	}
+
+	// Ensure any specified model in targetModels is present even if not in discovery
+	now := time.Now().Unix()
+	for _, m := range targetModels {
+		modelID := strings.TrimSpace(m.Alias)
+		if modelID == "" {
+			modelID = strings.TrimSpace(m.Name)
+		}
+		if modelID == "" {
+			continue
+		}
+		key := strings.ToLower(modelID)
+		if !seen[key] {
+			filtered = append(filtered, &registry.ModelInfo{
+				ID:          modelID,
+				Object:      "model",
+				Created:     now,
+				OwnedBy:     "qwen",
+				Type:        "openai-compatibility",
+				DisplayName: modelID,
+			})
+			seen[key] = true
+		}
+	}
+
+	return filtered
 }
 
 // applyQwenModelAlias filters or renames Qwen models using OAuthModelAlias.
@@ -549,4 +653,45 @@ func matchWildcard(pattern, value string) bool {
 		value = value[idx+len(part):]
 	}
 	return true
+}
+
+// ProbeQwenAuthHeartbeat sends a 0-cost GET request to /api/v2/user/info to refresh session cookies.
+// It will not consume tokens or create any chat sessions on Qwen's backend.
+func ProbeQwenAuthHeartbeat(ctx context.Context, cfg *config.Config, auth *cliproxyauth.Auth) bool {
+	if auth == nil {
+		return false
+	}
+	token, cookie := qwenCreds(auth)
+	if token == "" && cookie == "" {
+		return false
+	}
+
+	reqURL := "https://chat.qwen.ai/api/v2/user/info"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+	if err != nil {
+		return false
+	}
+
+	qwenauth.ApplyAllQwenHeaders(req, token, cookie, false)
+	req.Header.Set("User-Agent", helps.GetRandomUserAgent())
+
+	client := helps.NewUtlsHTTPClient(ctx, cfg, auth, 10*time.Second)
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Debugf("qwen heartbeat probe error for auth %s: %v", auth.ID, err)
+		return false
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == 200 {
+		log.Debugf("qwen heartbeat probe succeeded for auth %s (session refreshed)", auth.ID)
+		return true
+	} else if resp.StatusCode == 401 || resp.StatusCode == 429 {
+		log.Warnf("qwen heartbeat probe received status %d for auth %s", resp.StatusCode, auth.ID)
+		if auth.ID != "" {
+			registry.GetGlobalRegistry().SetModelQuotaExceeded(auth.ID, "")
+		}
+		return false
+	}
+	return false
 }

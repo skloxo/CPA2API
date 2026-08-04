@@ -16,9 +16,9 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/runtime/executor/helps"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/util"
 	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
-	"github.com/tiktoken-go/tokenizer"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
+	"github.com/tiktoken-go/tokenizer"
 )
 
 func collectCodexOutputItemDone(eventData []byte, outputItemsByIndex map[int64][]byte, outputItemsFallback *[][]byte) {

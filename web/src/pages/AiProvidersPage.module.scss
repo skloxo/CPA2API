@@ -1231,7 +1231,7 @@ $openai-toolbar-control-height: 36px;
 // 表头
 .keyTableHeader {
   display: grid;
-  grid-template-columns: 46px 56px minmax(180px, 1.4fr) minmax(180px, 1.1fr) 280px;
+  grid-template-columns: 46px 64px minmax(200px, 1.3fr) minmax(180px, 1fr) auto;
   gap: $spacing-sm;
   min-width: 820px;
   padding: 10px $spacing-md;
@@ -1250,7 +1250,7 @@ $openai-toolbar-control-height: 36px;
 // 数据行
 .keyTableRow {
   display: grid;
-  grid-template-columns: 46px 56px minmax(180px, 1.4fr) minmax(180px, 1.1fr) 280px;
+  grid-template-columns: 46px 64px minmax(200px, 1.3fr) minmax(180px, 1fr) auto;
   gap: $spacing-sm;
   min-width: 820px;
   padding: 10px $spacing-md;
@@ -1298,8 +1298,8 @@ $openai-toolbar-control-height: 36px;
 .keyTableColAction {
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: $spacing-sm;
+  justify-content: flex-end;
+  gap: 6px;
   flex-shrink: 0;
   white-space: nowrap;
 }

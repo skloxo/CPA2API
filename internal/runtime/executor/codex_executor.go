@@ -58,7 +58,6 @@ func translateCodexRequestPair(from, to sdktranslator.Format, model string, orig
 	return originalTranslated, body
 }
 
-
 // PrepareRequest injects Codex credentials into the outgoing HTTP request.
 func (e *CodexExecutor) PrepareRequest(req *http.Request, auth *cliproxyauth.Auth) error {
 	if req == nil {
@@ -566,7 +565,6 @@ func (e *CodexExecutor) CountTokens(ctx context.Context, auth *cliproxyauth.Auth
 	return cliproxyexecutor.Response{Payload: translated}, nil
 }
 
-
 func (e *CodexExecutor) Refresh(ctx context.Context, auth *cliproxyauth.Auth) (*cliproxyauth.Auth, error) {
 	log.Debugf("codex executor: refresh called")
 	if refreshed, handled, err := helps.RefreshAuthViaHome(ctx, e.cfg, auth); handled {
@@ -608,5 +606,3 @@ func (e *CodexExecutor) Refresh(ctx context.Context, auth *cliproxyauth.Auth) (*
 	auth.Metadata["last_refresh"] = now
 	return auth, nil
 }
-
-

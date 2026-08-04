@@ -786,12 +786,8 @@ func normalizeClaudeTemperatureForThinking(body []byte) []byte {
 	return body
 }
 
-
-
 // peekableBody wraps a bufio.Reader around the original ReadCloser so that
 // magic bytes can be inspected without consuming them from the stream.
-
-
 
 func applyClaudeHeaders(r *http.Request, auth *cliproxyauth.Auth, apiKey string, stream bool, extraBetas []string, cfg *config.Config) {
 	hdrDefault := func(cfgVal, fallback string) string {
@@ -964,9 +960,6 @@ func isClaudeOAuthToken(apiKey string) bool {
 // reverseRemapOAuthToolNamesFromStreamLine reverses the tool name mapping for SSE
 // stream lines, using the per-request reverseMap produced by remapOAuthToolNames.
 
-
-
-
 // getClientUserAgent extracts the client User-Agent from the gin context.
 
 // parseEntrypointFromUA extracts the entrypoint from a Claude Code User-Agent.
@@ -985,7 +978,6 @@ func isClaudeOAuthToken(apiKey string) bool {
 // generateBillingHeader creates the x-anthropic-billing-header text block that
 // real Claude Code prepends to every system prompt array.
 // Format: x-anthropic-billing-header: cc_version=<ver>.<build>; cc_entrypoint=<ep>; cch=<hash>; [cc_workload=<wl>;]
-
 
 // checkSystemInstructionsWithSigningMode injects Claude Code-style system blocks:
 //
@@ -1022,7 +1014,6 @@ func isClaudeOAuthToken(apiKey string) bool {
 // Up to 4 cache breakpoints are allowed per request. Tools, System, and Messages are INDEPENDENT breakpoints.
 // This enables up to 90% cost reduction on cached tokens (cache read = 0.1x base price).
 // See: https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching
-
 
 // normalizeCacheControlTTL ensures cache_control TTL values don't violate the
 // prompt-caching-scope-2026-01-05 ordering constraint: a 1h-TTL block must not

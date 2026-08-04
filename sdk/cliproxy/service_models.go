@@ -161,9 +161,13 @@ func (s *Service) registerModelsForAuth(a *coreauth.Auth) {
 		models = registry.GetKimiModels()
 		models = applyExcludedModels(models, excluded)
 	case "qwen":
-		models = registry.GetDiscoveredModels("qwen")
-		staticModels := registry.GetQwenModels()
-		models = unionQwenModels(models, staticModels)
+		if compat := s.findOpenAICompatConfig("qwen"); compat != nil && len(compat.Models) > 0 {
+			models = buildOpenAICompatibilityConfigModels(compat)
+		} else {
+			models = registry.GetDiscoveredModels("qwen")
+			staticModels := registry.GetQwenModels()
+			models = unionQwenModels(models, staticModels)
+		}
 		models = applyExcludedModels(models, excluded)
 	case "xai":
 		models = registry.GetXAIModels()
@@ -1094,4 +1098,20 @@ func unionQwenModels(a, b []*registry.ModelInfo) []*registry.ModelInfo {
 		}
 	}
 	return result
+}
+
+func (s *Service) findOpenAICompatConfig(name string) *config.OpenAICompatibility {
+	if s == nil || s.cfg == nil {
+		return nil
+	}
+	for i := range s.cfg.OpenAICompatibility {
+		compat := &s.cfg.OpenAICompatibility[i]
+		if compat.Disabled {
+			continue
+		}
+		if strings.EqualFold(compat.Name, name) || strings.EqualFold(compat.BaseURL, name) {
+			return compat
+		}
+	}
+	return nil
 }

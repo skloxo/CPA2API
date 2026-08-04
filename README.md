@@ -95,35 +95,37 @@ graph TD
 
 ## ✨ 核心特性
 
-*   **🔒 Qwen Web 绕过与会话适配**：内置高级 Session 绕过与智能 Cookie 维护，完美模拟 Web 端交互流程，提供强悍的多轮会话稳定性与高并发控制。
-*   **💓 Keep-alive SSE 心跳机制**：在大模型深度思考（Thinking）或执行复杂工具搜索导致响应停顿时，定期向客户端发送轻量级心跳帧，防止 Nginx、CDN 或 HTTP 客户端触发读取超时中断。
-*   **🛠️ 智能工具调用与 JSON 修复**：完美契合 Agent 多步骤决策流程，自动解析流式传输中的 `custom_tool_call` XML 标签，并行提取工具调用，并提供自动 JSON 闭合与畸变修复引擎。
-*   **✂️ 工具响应输出预算截断**：智能计算并限制工具返回结果的 Token 大小。采用“首尾保留、中间截断”的启发式算法，防止第三方 API 响应过长导致上下文爆满或超出 Token 限制。
-*   **🖼️ 多模态视觉上传与转换**：支持多模态视觉模型（VLM）的数据流解析与转换，自动对上传的图片素材进行高效缓存与适配。
-*   **📊 无状态会话与 Token 审计**：提供精准的 Token 使用统计，无缝记录消费流水，防范账号上下文跨实例污染。
+*   **🔒 Qwen Web 动态隔离与白名单控制**：物理级收敛隐藏未配置的 24 个预设千问模型，模型列表与管理界面只纯净展示用户配置的目标模型（如 `qwen3.7-plus` 与 `qwen3.8-max`）。
+*   **⚡ 1M (1,000,000 Tokens / 200万字符) 极限长上下文**：通过 TCP Keep-Alive 与无效空节点清洗，彻底突破 Web 网关 WAF `EOF` 断线限制，`512K Tokens (~200万字符)` 单包极速稳定交付，吞吐大幅提升 3 倍。
+*   **🔄 Rate-Limit 自动感知与无缝切账号 (Failover)**：捕获 429 Too Many Requests、401 Unauthorized 及 QuotaExceeded 特征后自动将受限账号设为 CoolDown，配合多账号 Selector 自动无缝切换账号，客户端 0 报错。
+*   **💓 0-Cost GET 探针保鲜 (ProbeQwenAuthHeartbeat)**：后台通过 `GET /api/v2/user/info` 进行轻量级心跳探针，**不消耗 Token 额度、不上墙任何聊天记录**，天然刷新 Cookie 与 HTTP Session。
+*   **🛠️ 智能工具调用与 JSON 修复**：自动解析流式传输中的 `custom_tool_call` 结构，提供 `ReadX`/`WriteX` 混淆解混淆与自动 JSON 闭合修复引擎。
+*   **🧪 12 维自动化 KPI 测试套件**：包含完整的长上下文、SSE 连贯性、工具混淆、推理思维链等 12 维自动化回归测试（内置于 `docs/testing/`）。
 
 ---
 
 ## 🏷️ 版本号规范
 
-本项目采用 `git describe --tags --always --dirty` 动态生成版本号，便于追踪上游变更与本地定制：
+全系统严格遵循标准统一命名规范：
 
-*   **开发版本**：`v7.1.45-s.9-25-gaf69da3c-dirty`（自动生成，基于 git 历史）
-*   **发布版本**：`v7.1.45-s.9`（通过 ldflags 注入，基于 git tag）
-*   **版本格式**：`v[UpstreamVersion]-s.[PatchVersion]-[commits]-g[hash][-dirty]`
-    *   **`v7.1.45`**：同步并映射上游 [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) 官方发行版。
-    *   **`-s.9`**：由 Skloxo 维护的专属定制补丁/优化版本。
-    *   **`-25-gaf69da3c`**：距离最近 tag 的 commit 数量和 commit hash。
-    *   **`-dirty`**：工作目录有未提交的修改。
+`v<UpstreamVersion>-s<LocalPatchVersion>`
 
-*   **查看当前版本**：
-    ```bash
-    # 运行程序时自动显示版本
-    go run ./cmd/server
-    
-    # 或通过 git describe 直接查看
-    git describe --tags --always --dirty
-    ```
+### 规则详解：
+1. **本地自增迭代**：上游版本保持不变，`-s` 后的数字自然递增。
+   * 示例：基于上游 `v7.1.45` 的第 10 次迭代 -> **`v7.1.45-s10`**
+   * 下一次本地迭代 -> **`v7.1.45-s11`**
+2. **合并上游升级**：合并上游代码后，`-s` 后的数字重置为 `s1`。
+   * 示例：合并上游 `v7.2.0` -> **`v7.2.0-s1`**
+   * 在此基础上再次迭代 -> **`v7.2.0-s2`**
+
+* **查看当前服务版本**：
+  ```bash
+  # 运行程序时控制台自动输出
+  go run ./cmd/server
+  
+  # 或通过 git describe 查看
+  git describe --tags --always --dirty
+  ```
 
 *   **Docker 构建时指定版本**：
     ```bash
