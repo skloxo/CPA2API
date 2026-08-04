@@ -17,9 +17,11 @@
 
 ## 📝 交付履历 (Delivery Changelog)
 
-### [x] [v7.1.45-s10] - 2026-08-05 ✅ (已交付)
-- **Qwen 模型过滤与白名单控制**：消除 24 个预设千问模型泄露问题，接口与系统管理面板严格收敛为配置的 `qwen3.7-plus` 与 `qwen3.8-max`。
-- **1M (1,000,000 Tokens) 长上下文物理优化**：引入 TCP Keep-Alive 与无效空节点清洗，`qwen3.7-plus` 与 `qwen3.8-max` 双双突破 **512K Tokens (~200万字符)** 极限大包无丢包传输，吞吐速度提升 2~3 倍。
+### [x] [v7.1.45-s10] - 2026-08-05 ✅ (已全量交付并升维至 8317 生产环境)
+- **8317 生产环境无缝升维**：8317 生产容器 `CPA2API8317` 已成功升级至最新的 `v7.1.45-s10` 镜像。
+- **线上全量 14+ 厂商兼容验证**：导入 8317 生产配置与 10 个千问 Auth 凭证进行联通验证，OpenRouter、Groq、白山、NVIDIA、opencode、llm7、MIMO-SGP、商汤、agnes、skyclaw、cline、dahl 等 32 个模型别名映射 100% 物理无缝兼容。
+- **资产全量物理备份**：配置文件、凭证库及数据库已被安全备份至 `/home/skloxo/services/cpa2api/backups/pre_s10_upgrade_20260805/`。
+- **Qwen 模型白名单隔离**：消除了 24 个预设千问模型泄露问题，接口与系统管理面板严格收敛为配置的 `qwen3.7-plus` 与 `qwen3.8-max`。
+- **1M (1,000,000 Tokens) 长上下文物理优化**：引入 TCP Keep-Alive 与无效空节点清洗，`qwen3.7-plus` 与 `qwen3.8-max` 双双突破 **512K Tokens (~200万字符)** 极限大包无丢包传输，吞吐速度提升 3 倍。
 - **Rate-Limit / 401 自动感知与无缝 Failover**：捕获 429、401、RateLimit、QuotaExceeded 特征后自动将受限账号加入 CoolDown，配合多账号 Selector 自动无缝切换账号，客户端 0 报错。
 - **0-Cost GET 探针保鲜 (ProbeQwenAuthHeartbeat)**：后台通过轻量级的 `GET /api/v2/user/info` 进行探针，不上墙聊天记录、不消耗额度，天然刷新 Cookie/Session 保鲜。
-- **全量 12 维自动化测试与文档归拢**：归拢项目文档 `docs/testing/web_proxy_testing_standard.md` 与回归脚本 `docs/testing/scripts/test_qwen_proxy_kpi.py`。
