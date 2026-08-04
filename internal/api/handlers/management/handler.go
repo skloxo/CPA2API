@@ -247,10 +247,12 @@ func (h *Handler) AuthenticateManagementKey(clientIP string, localClient bool, p
 	}
 	envSecret := h.envSecret
 
+	isLoopback := clientIP == "127.0.0.1" || clientIP == "::1" || strings.HasPrefix(clientIP, "127.")
+
 	now := time.Now()
 	h.attemptsMu.Lock()
 	ai := h.failedAttempts[clientIP]
-	if ai != nil && !ai.blockedUntil.IsZero() {
+	if ai != nil && !ai.blockedUntil.IsZero() && !isLoopback {
 		if now.Before(ai.blockedUntil) {
 			remaining := ai.blockedUntil.Sub(now).Round(time.Second)
 			h.attemptsMu.Unlock()
@@ -267,6 +269,9 @@ func (h *Handler) AuthenticateManagementKey(clientIP string, localClient bool, p
 	}
 
 	fail := func() {
+		if isLoopback {
+			return
+		}
 		h.attemptsMu.Lock()
 		aip := h.failedAttempts[clientIP]
 		if aip == nil {

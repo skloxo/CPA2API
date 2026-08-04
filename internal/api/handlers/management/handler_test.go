@@ -8,7 +8,7 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
 )
 
-func TestAuthenticateManagementKey_LocalhostIPBan_BlocksCorrectKeyDuringBan(t *testing.T) {
+func TestAuthenticateManagementKey_IPBan_BlocksCorrectKeyDuringBan(t *testing.T) {
 	h := &Handler{
 		cfg:            &config.Config{},
 		failedAttempts: make(map[string]*attemptInfo),
@@ -16,7 +16,7 @@ func TestAuthenticateManagementKey_LocalhostIPBan_BlocksCorrectKeyDuringBan(t *t
 	}
 
 	for i := 0; i < 5; i++ {
-		allowed, statusCode, errMsg := h.AuthenticateManagementKey("127.0.0.1", true, "wrong-secret")
+		allowed, statusCode, errMsg := h.AuthenticateManagementKey("192.168.1.100", true, "wrong-secret")
 		if allowed {
 			t.Fatalf("expected auth to be denied at attempt %d", i+1)
 		}
@@ -25,7 +25,7 @@ func TestAuthenticateManagementKey_LocalhostIPBan_BlocksCorrectKeyDuringBan(t *t
 		}
 	}
 
-	allowed, statusCode, errMsg := h.AuthenticateManagementKey("127.0.0.1", true, "test-secret")
+	allowed, statusCode, errMsg := h.AuthenticateManagementKey("192.168.1.100", true, "test-secret")
 	if allowed {
 		t.Fatalf("expected correct key to be denied while banned")
 	}

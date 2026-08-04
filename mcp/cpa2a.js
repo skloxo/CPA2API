@@ -16,7 +16,7 @@ const fs = require('fs');
 const CPA_BASE       = process.env.CPA_BASE_URL  || 'http://localhost:8317';
 const CPA_KEY        = process.env.CPA_API_KEY   || '';
 const CPA_DEPLOY_DIR = process.env.CPA_DEPLOY_DIR || '/home/skloxo/services/cpa2api';
-const CONTAINER_NAME = 'cli-proxy-api';
+const CONTAINER_NAME = 'CPA2API8317';
 
 // ============ MCP 工具定义 ============
 
