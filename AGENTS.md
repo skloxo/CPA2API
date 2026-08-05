@@ -4,7 +4,7 @@ Go 1.26+ proxy server providing OpenAI/Gemini/Claude/Codex compatible APIs with 
 
 ## Project Rules
 - Auto git commit after code changes (no auto push)
-- Docker service auto-deploy
+- Native WSL service daemon via PM2 (`sudo pm2 status cpa2api`, `sudo pm2 restart cpa2api`)
 - Use `go test ./...` to run tests
 - Use `go build ./cmd/server` to verify compilation
 - Keep code concise, comments in English

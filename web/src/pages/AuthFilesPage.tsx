@@ -25,6 +25,10 @@ import { IconFilterAll, IconSearch } from '@/components/ui/icons';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
 import { copyToClipboard } from '@/utils/clipboard';
+import { authFilesApi } from '@/services/api/authFiles';
+
+const getErrorMessage = (err: unknown): string =>
+  err instanceof Error ? err.message : String(err);
 import {
   normalizePlanType,
   resolveAuthProvider,
@@ -1143,6 +1147,20 @@ export function AuthFilesPage() {
         dirty={prefixProxyDirty}
         onClose={closePrefixProxyEditor}
         onCopyText={copyTextWithNotification}
+        onRefresh={() => {
+          if (prefixProxyEditor?.fileName) {
+            void authFilesApi.refresh(prefixProxyEditor.fileName).then((res) => {
+              if (res.status === 'success') {
+                showNotification('凭证刷新成功！', 'success');
+              } else {
+                showNotification(res.message || '凭证刷新失败', 'error');
+              }
+              void loadFiles();
+            }).catch((err) => {
+              showNotification(`刷新失败: ${getErrorMessage(err)}`, 'error');
+            });
+          }
+        }}
         onSave={handlePrefixProxySave}
         onChange={handlePrefixProxyChange}
       />

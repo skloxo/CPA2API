@@ -42,6 +42,13 @@ class ApiClient {
     }
   }
 
+  /**
+   * 获取当前 ManagementKey
+   */
+  getManagementKey(): string {
+    return this.managementKey;
+  }
+
   private readHeader(
     headers: Record<string, unknown> | undefined,
     keys: string[]

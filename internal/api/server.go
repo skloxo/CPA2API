@@ -1521,6 +1521,7 @@ func (s *Server) Start() error {
 		errAccept := <-acceptErrCh
 		errServe = normalizeHTTPServeError(errServe)
 		errAccept = normalizeListenerError(errAccept)
+		log.Warnf("Server.Start exiting via httpErrCh: errServe=%v, errAccept=%v", errServe, errAccept)
 		if errServe != nil {
 			return fmt.Errorf("failed to start HTTP server: %v", errServe)
 		}

@@ -218,9 +218,7 @@ func (e *QwenExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, req
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Accept", "text/event-stream")
-	httpReq.Header.Set("Accept-Encoding", "identity")
-	httpReq.Header.Set("Connection", "keep-alive")
-	httpReq.Header.Set("Cache-Control", "no-cache")
+	httpReq.Header.Set("x-platform", "pc_web")
 
 	// Apply all anti-detection headers
 	qwenauth.ApplyAllQwenHeaders(httpReq, token, qwenCookie(auth), true)
@@ -600,9 +598,6 @@ func (e *QwenExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Aut
 		attrs = auth.Attributes
 	}
 	util.ApplyCustomHeadersFromAttrs(httpReq, attrs)
-	// Re-enforce Accept-Encoding: identity for streaming to prevent compressed SSE.
-	// Compressed streams break the line scanner.
-	httpReq.Header.Set("Accept-Encoding", "identity")
 
 	var authID, authLabel, authType, authValue string
 	if auth != nil {

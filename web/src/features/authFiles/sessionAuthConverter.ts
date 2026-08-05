@@ -1,4 +1,4 @@
-export type AuthJsonInputType = 'cpa' | 'session';
+export type AuthJsonInputType = 'cpa' | 'session' | 'qwen';
 
 type JsonRecord = Record<string, unknown>;
 type TraversalState = {
@@ -739,10 +739,77 @@ export const convertAuthJsonInput = (
   type: AuthJsonInputType,
   now = new Date()
 ): JsonRecord => {
+  if (type === 'qwen') {
+    let email = '';
+    let token = '';
+    let cookie = '';
+    let parsed: JsonRecord | null = null;
+
+    try {
+      if (text.trim().startsWith('{')) {
+        const obj = JSON.parse(text);
+        if (isRecord(obj)) parsed = obj;
+      }
+    } catch {
+      // Ignore JSON parse errors for raw cookie string or raw token text
+    }
+
+    let rawText = text.trim();
+    if ((rawText.startsWith("'") && rawText.endsWith("'")) || (rawText.startsWith('"') && rawText.endsWith('"'))) {
+      rawText = rawText.slice(1, -1).trim();
+    }
+
+    if (parsed) {
+      email = String(firstNonEmpty(parsed.email, parsed.user) || '');
+      token = String(firstNonEmpty(parsed.access_token, parsed.token, parsed.password) || '');
+      cookie = String(firstNonEmpty(parsed.cookie, parsed.cookies) || '');
+    }
+
+    if (!cookie && (rawText.includes(';') || rawText.includes('='))) {
+      cookie = rawText;
+    }
+    if (cookie.startsWith("'") && cookie.endsWith("'")) {
+      cookie = cookie.slice(1, -1).trim();
+    }
+    if (cookie.startsWith('"') && cookie.endsWith('"')) {
+      cookie = cookie.slice(1, -1).trim();
+    }
+    if (!token && cookie) {
+      for (const part of cookie.split(';')) {
+        const p = part.trim();
+        if (p.startsWith('token=')) {
+          token = p.slice('token='.length);
+          break;
+        }
+      }
+    }
+    if (!token && rawText.startsWith('eyJ')) {
+      token = rawText;
+    }
+    if (!email && token) {
+      email = 'qwen-' + token.slice(-10) + '@qwen.ai';
+    }
+    if (!email) {
+      email = 'qwen-user@qwen.ai';
+    }
+
+    if (!cookie && !token) {
+      throw new AuthJsonConversionError('Qwen凭证至少需要填入 document.cookie 或 token');
+    }
+
+    return {
+      email,
+      access_token: token,
+      cookie,
+      type: 'qwen',
+    };
+  }
+
   const parsed = parseJsonObject(text, type === 'session');
   if (hasForbiddenInvisibleCharacter(parsed)) {
     throw new AuthJsonConversionError('Auth JSON contains unsupported invisible characters');
   }
+
   if (type === 'cpa') {
     if (hasUnsafeCpaIdToken(parsed)) {
       throw new AuthJsonConversionError('CPA auth JSON contains unsupported id_token');
@@ -767,11 +834,13 @@ export const convertAuthJsonInput = (
 };
 
 export const getDefaultSessionAuthFileName = (authJson: JsonRecord) => {
+  const isQwen = authJson.type === 'qwen' || String(authJson.email || '').includes('qwen');
+  const defaultBase = isQwen ? 'qwen-account' : 'codex-account';
   const rawName = firstNonEmpty(
     authJson.email,
     authJson.name,
     authJson.account_id,
-    'codex-account'
+    defaultBase
   );
   const safeName = String(rawName)
     .replace(/\.json$/iu, '')
@@ -783,5 +852,9 @@ export const getDefaultSessionAuthFileName = (authJson: JsonRecord) => {
     .slice(0, 80);
   const safeBaseName = WINDOWS_RESERVED_BASE_NAMES.has(safeName) ? `${safeName}-account` : safeName;
 
+  if (isQwen) {
+    const name = safeBaseName || 'qwen-account';
+    return name.startsWith('qwen-') ? `${name}.json` : `qwen-${name}.json`;
+  }
   return `${safeBaseName || 'codex-account'}.codex.json`;
 };

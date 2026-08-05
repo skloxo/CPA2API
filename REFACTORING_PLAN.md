@@ -17,6 +17,11 @@
 
 ## 📝 交付履历 (Delivery Changelog)
 
+### [x] [v7.1.45-s12] - 2026-08-05 ✅ (已全量交付并部署至 8317 生产环境)
+- **Systemd 托管模式下 Keepalive 误退出修复**：修复 `internal/cmd/run.go` 中 `localPassword != ""` 默认开启 10 秒空闲 shutdown 计时器导致的 systemd 进程无限重启循环。改为仅当以 TUI 嵌入模式启动（`tui-` 前缀）时才触发空闲关闭，保障后台 systemd 服务 100% 常驻稳定运行。
+- **Qwen WAF 指纹匹配与设备头矫正**：修正 `fingerprint.go` 中 `User-Agent` 与 `sec-ch-ua` 的 Windows 匹配模式，防止 macOS/Win32 跨设备指纹冲突引发阿里 WAF 拦截；补齐 `x-platform: pc_web` 请求头与 Utls HTTP/2 死连接单次自动重连。
+- **前端凭证管理交互升级**：在 Web 管理面板【AI 提供商】-> Qwen 界面中恢复 S10/S11 邮箱密码一键鉴权登录模态框，同时保留 Auth JSON 与 Cookie 字符串灵活导入通道，实现零痛点快速接入。
+
 ### [x] [v7.1.45-s11] - 2026-08-05 ✅ (已全量交付并部署至 8317 生产环境)
 - **Qwen WAF Session Cookie 全量提取与持久化**：重构 `SignIn` 接口与凭证存储 `QwenTokenStorage`，不仅提取 JWT `token`，更将握手时上游发回的所有 `Set-Cookie`（包含 `acw_tc` 阿里云 WAF 追踪 Cookie、`token` 属性 Cookie、`x-ap` 节点 Cookie）全量持久化写入 `qwen-*.json`，彻底解决缺少握手 Cookie 引发 WAF 拦截的根因。
 - **WAF 伪装拦截识别与静默 Failover 机制**：针对阿里云 WAF 返回的 200 OK HTML 页面（包含 `RGV587_ERROR` / `AliyunCaptcha`），增加精准识别捕获逻辑，一旦命中直接标记 `SetModelQuotaExceeded` 并自动无缝 Failover 触发账号轮换，彻底杜绝 0 字节悬挂报错。

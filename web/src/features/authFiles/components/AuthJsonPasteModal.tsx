@@ -113,9 +113,28 @@ export function AuthJsonPasteModal({
     () => [
       { value: 'cpa', label: t('auth_files.paste_type_cpa') },
       { value: 'session', label: t('auth_files.paste_type_session') },
+      { value: 'qwen', label: '通义千问 (Qwen) Cookie 手动导入' },
     ],
     [t]
   );
+
+  const placeholderText = useMemo(() => {
+    if (type === 'qwen') {
+      return '请从浏览器 F12 控制台 (document.cookie) 粘贴完整 Cookie 文本，或输入包含 email、cookie、access_token 的 JSON：\n\n{\n  "email": "user@gmail.com",\n  "cookie": "acw_tc=...; token=...",\n  "access_token": "eyJ..."\n}';
+    }
+    return t(
+      type === 'session'
+        ? 'auth_files.paste_session_placeholder'
+        : 'auth_files.paste_cpa_placeholder'
+    );
+  }, [type, t]);
+
+  const hintText = useMemo(() => {
+    if (type === 'qwen') {
+      return '💡 提示：登录 chat.qwen.ai 后，按 F12 打开 Console，输入 document.cookie 复制全部内容粘贴至上方即可。';
+    }
+    return t(type === 'session' ? 'auth_files.paste_session_hint' : 'auth_files.paste_cpa_hint');
+  }, [type, t]);
 
   const handleSave = async () => {
     if (saving || disabled) return;
@@ -168,7 +187,15 @@ export function AuthJsonPasteModal({
           <Select
             value={type}
             options={options}
-            onChange={(value) => setType(value as AuthJsonInputType)}
+            onChange={(value) => {
+              const newType = value as AuthJsonInputType;
+              setType(newType);
+              if (newType === 'qwen' && fileName === DEFAULT_FILE_NAME) {
+                setFileName('qwen-account.json');
+              } else if (newType !== 'qwen' && fileName === 'qwen-account.json') {
+                setFileName(DEFAULT_FILE_NAME);
+              }
+            }}
             ariaLabel={t('auth_files.paste_type_label')}
             disabled={saving || disabled}
           />
@@ -178,7 +205,7 @@ export function AuthJsonPasteModal({
           value={fileName}
           onChange={(event) => setFileName(event.target.value)}
           disabled={saving || disabled}
-          placeholder={DEFAULT_FILE_NAME}
+          placeholder={type === 'qwen' ? 'qwen-account.json' : DEFAULT_FILE_NAME}
         />
         <div className={styles.formGroup}>
           <label htmlFor="auth-json-paste-content">{t('auth_files.paste_json_label')}</label>
@@ -189,16 +216,10 @@ export function AuthJsonPasteModal({
             onChange={(event) => setJsonText(event.target.value)}
             disabled={saving || disabled}
             spellCheck={false}
-            placeholder={t(
-              type === 'session'
-                ? 'auth_files.paste_session_placeholder'
-                : 'auth_files.paste_cpa_placeholder'
-            )}
+            placeholder={placeholderText}
           />
         </div>
-        <p className={styles.authJsonPasteHint}>
-          {t(type === 'session' ? 'auth_files.paste_session_hint' : 'auth_files.paste_cpa_hint')}
-        </p>
+        <p className={styles.authJsonPasteHint}>{hintText}</p>
       </div>
     </Modal>
   );

@@ -14,11 +14,11 @@ import (
 type qwenLoginRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
+	Cookie   string `json:"cookie,omitempty"`
 }
 
 // PostQwenLogin handles POST /qwen-login requests.
-// It authenticates with Qwen using email/password, persists the resulting token,
-// and returns a success/error JSON response matching the frontend API contract.
+// It authenticates with Qwen using email/password or saves provided cookies & tokens directly.
 func (h *Handler) PostQwenLogin(c *gin.Context) {
 	if h == nil || h.cfg == nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"status": "error", "message": "handler not initialized"})
@@ -33,30 +33,66 @@ func (h *Handler) PostQwenLogin(c *gin.Context) {
 
 	email := strings.TrimSpace(req.Email)
 	password := strings.TrimSpace(req.Password)
-	if email == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "email is required"})
-		return
-	}
-	if password == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "password is required"})
-		return
+	userCookie := strings.TrimSpace(req.Cookie)
+
+	var accessToken, expired, finalCookie string
+	if password != "" && !strings.HasPrefix(password, "eyJ") {
+		// Sign in with Qwen via email/password if provided
+		auth := qwen.NewQwenAuth(h.cfg)
+		result, err := auth.SignIn(context.Background(), email, password, "")
+		if err != nil && userCookie == "" {
+			log.Errorf("qwen login failed for %s: %v", email, err)
+			c.JSON(http.StatusBadGateway, gin.H{"status": "error", "message": err.Error()})
+			return
+		}
+		if result != nil {
+			accessToken = result.Token
+			expired = result.Expired
+			finalCookie = result.Cookie
+		}
+	} else if strings.HasPrefix(password, "eyJ") && accessToken == "" {
+		accessToken = password
 	}
 
-	// Sign in with Qwen
-	auth := qwen.NewQwenAuth(h.cfg)
-	result, err := auth.SignIn(context.Background(), email, password, "")
-	if err != nil {
-		log.Errorf("qwen login failed for %s: %v", email, err)
-		c.JSON(http.StatusBadGateway, gin.H{"status": "error", "message": err.Error()})
+	if userCookie != "" {
+		if finalCookie != "" {
+			finalCookie = finalCookie + "; " + userCookie
+		} else {
+			finalCookie = userCookie
+		}
+	}
+
+	// Try extracting token from userCookie if accessToken is still empty
+	if accessToken == "" && userCookie != "" {
+		for _, part := range strings.Split(userCookie, ";") {
+			part = strings.TrimSpace(part)
+			if strings.HasPrefix(part, "token=") {
+				accessToken = strings.TrimPrefix(part, "token=")
+				break
+			}
+		}
+	}
+
+	if email == "" && accessToken != "" {
+		// Auto-derive email from token if not explicitly provided
+		if strings.Count(accessToken, ".") == 2 {
+			email = "qwen-auth-" + accessToken[len(accessToken)-12:] + "@qwen.ai"
+		} else {
+			email = "qwen-user-" + accessToken[:minInt(16, len(accessToken))]
+		}
+	}
+
+	if email == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "email or token/cookie is required"})
 		return
 	}
 
 	// Build token storage
 	storage := &qwen.QwenTokenStorage{
-		AccessToken: result.Token,
-		Cookie:      result.Cookie,
+		AccessToken: accessToken,
+		Cookie:      finalCookie,
 		Email:       email,
-		Expired:     result.Expired,
+		Expired:     expired,
 		Password:    password,
 	}
 
@@ -70,5 +106,12 @@ func (h *Handler) PostQwenLogin(c *gin.Context) {
 	}
 
 	log.Infof("qwen login successful for %s", email)
-	c.JSON(http.StatusOK, gin.H{"status": "success", "email": email})
+	c.JSON(http.StatusOK, gin.H{"status": "success", "email": email, "file": fileName})
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

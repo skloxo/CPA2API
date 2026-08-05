@@ -6,7 +6,9 @@ package cmd
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -34,7 +36,7 @@ func StartService(cfg *config.Config, configPath string, localPassword string) {
 	defer cancel()
 
 	runCtx := ctxSignal
-	if localPassword != "" {
+	if strings.HasPrefix(localPassword, "tui-") {
 		var keepAliveCancel context.CancelFunc
 		runCtx, keepAliveCancel = context.WithCancel(ctxSignal)
 		builder = builder.WithServerOptions(api.WithKeepAliveEndpoint(10*time.Second, func() {
@@ -50,6 +52,7 @@ func StartService(cfg *config.Config, configPath string, localPassword string) {
 	}
 
 	err = service.Run(runCtx)
+	fmt.Printf("StartService: service.Run finished! err=%v, runCtxErr=%v\n", err, runCtx.Err())
 	if err != nil && !errors.Is(err, context.Canceled) {
 		log.Errorf("proxy service exited with error: %v", err)
 	}

@@ -30,8 +30,10 @@ type ModalHarness = {
   getText: () => string;
 };
 
+import type { AuthJsonInputType } from '@/features/authFiles/sessionAuthConverter';
+
   const mountModal = (
-    onSave: (type: 'session' | 'cpa', fileName: string, jsonText: string) => Promise<void>,
+    onSave: (type: AuthJsonInputType, fileName: string, jsonText: string) => Promise<void>,
     saving = false,
     disabled = false
   ): ModalHarness => {

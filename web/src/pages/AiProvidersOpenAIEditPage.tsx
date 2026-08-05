@@ -20,6 +20,8 @@ import type { OpenAIEditOutletContext } from './AiProvidersOpenAIEditLayout';
 import type { KeyTestStatus } from '@/stores/useOpenAIEditDraftStore';
 import { Modal } from '@/components/ui/Modal';
 import { AuthFilesPrefixProxyEditorModal } from '@/features/authFiles/components/AuthFilesPrefixProxyEditorModal';
+import { AuthJsonPasteModal } from '@/features/authFiles/components/AuthJsonPasteModal';
+import { convertAuthJsonInput, type AuthJsonInputType } from '@/features/authFiles/sessionAuthConverter';
 import { useAuthFilesPrefixProxyEditor } from '@/features/authFiles/hooks/useAuthFilesPrefixProxyEditor';
 import type { AuthFileItem } from '@/types';
 import styles from './AiProvidersPage.module.scss';
@@ -139,11 +141,6 @@ export function AiProvidersOpenAIEditPage() {
   const [loadingQwen, setLoadingQwen] = useState(false);
   const [qwenProxyDrafts, setQwenProxyDrafts] = useState<Record<string, string>>({});
   const [qwenTestStatuses, setQwenTestStatuses] = useState<Record<string, { status: 'idle' | 'loading' | 'success' | 'error', message?: string }>>({});
-  const [isQwenLoginOpen, setIsQwenLoginOpen] = useState(false);
-  const [qwenEmail, setQwenEmail] = useState('');
-  const [qwenPassword, setQwenPassword] = useState('');
-  const [qwenProxy, setQwenProxy] = useState('');
-  const [loggingInQwen, setLoggingInQwen] = useState(false);
 
   const fetchQwenCredentials = useCallback(async () => {
     if (form.baseUrl !== 'qwen') return;
@@ -167,6 +164,17 @@ export function AiProvidersOpenAIEditPage() {
       setLoadingQwen(false);
     }
   }, [form.baseUrl, showNotification]);
+
+  useEffect(() => {
+    const handleAuthMessage = (event: MessageEvent) => {
+      if (event.data && event.data.type === 'QWEN_AUTH_SUCCESS') {
+        showNotification(`凭证授权成功 (${event.data.email || ''})，已同步存入 CPA！`, 'success');
+        void fetchQwenCredentials();
+      }
+    };
+    window.addEventListener('message', handleAuthMessage);
+    return () => window.removeEventListener('message', handleAuthMessage);
+  }, [fetchQwenCredentials, showNotification]);
 
   useEffect(() => {
     if (form.baseUrl === 'qwen') {
@@ -264,32 +272,71 @@ export function AiProvidersOpenAIEditPage() {
     setQwenProxyDrafts((prev) => ({ ...prev, [name]: value }));
   };
 
+  const [authJsonPasteOpen, setAuthJsonPasteOpen] = useState(false);
+  const [authJsonPasteSaving, setAuthJsonPasteSaving] = useState(false);
+
+  const [isQwenLoginOpen, setIsQwenLoginOpen] = useState(false);
+  const [qwenEmail, setQwenEmail] = useState('');
+  const [qwenPassword, setQwenPassword] = useState('');
+  const [qwenCookieInput, setQwenCookieInput] = useState('');
+  const [qwenProxy, setQwenProxy] = useState('');
+  const [loggingInQwen, setLoggingInQwen] = useState(false);
+
+  const handleOpenQwenOAuthBridge = () => {
+    setIsQwenLoginOpen(true);
+  };
+
   const handleQwenLoginSubmit = async () => {
-    if (!qwenEmail.trim() || !qwenPassword.trim()) {
-      showNotification('请输入邮箱和密码', 'error');
+    if (!qwenEmail.trim() && !qwenCookieInput.trim()) {
+      showNotification('请输入邮箱/密码或 Cookie 凭证', 'error');
       return;
     }
     setLoggingInQwen(true);
     try {
       const res = await apiClient.post<{ status: string; email: string }>('/qwen-login', {
-        email: qwenEmail.trim(),
-        password: qwenPassword.trim(),
-        proxy: qwenProxy.trim() || undefined
+        email: qwenEmail.trim() || undefined,
+        password: qwenPassword.trim() || undefined,
+        cookie: qwenCookieInput.trim() || undefined,
+        proxy: qwenProxy.trim() || undefined,
       });
       if (res.status === 'success') {
-        showNotification('登录成功，已自动保存凭证', 'success');
+        showNotification('Qwen 凭证添加成功！', 'success');
         setIsQwenLoginOpen(false);
         setQwenEmail('');
         setQwenPassword('');
+        setQwenCookieInput('');
         setQwenProxy('');
         void fetchQwenCredentials();
       } else {
-        showNotification('登录失败', 'error');
+        showNotification('登录/保存凭证失败', 'error');
       }
     } catch (err) {
-      showNotification(`登录失败: ${getErrorMessage(err)}`, 'error');
+      showNotification(`操作失败: ${getErrorMessage(err)}`, 'error');
     } finally {
       setLoggingInQwen(false);
+    }
+  };
+
+  const handleSavePastedAuthJson = async (
+    type: AuthJsonInputType,
+    fileName: string,
+    jsonText: string
+  ) => {
+    setAuthJsonPasteSaving(true);
+    try {
+      const authJson = convertAuthJsonInput(jsonText, type);
+      const file = new File([JSON.stringify(authJson, null, 2)], fileName, {
+        type: 'application/json',
+      });
+      await authFilesApi.uploadFiles([file]);
+      showNotification('凭证添加成功！', 'success');
+      setAuthJsonPasteOpen(false);
+      void fetchQwenCredentials();
+    } catch (err) {
+      showNotification(`保存凭证失败: ${getErrorMessage(err)}`, 'error');
+      throw err;
+    } finally {
+      setAuthJsonPasteSaving(false);
     }
   };
 
@@ -832,7 +879,7 @@ export function AiProvidersOpenAIEditPage() {
           <Button
             variant="secondary"
             size="sm"
-            onClick={() => setIsQwenLoginOpen(true)}
+            onClick={handleOpenQwenOAuthBridge}
             disabled={saving || disableControls || isTestingKeys}
             className={styles.addKeyButton}
           >
@@ -1187,6 +1234,32 @@ export function AiProvidersOpenAIEditPage() {
         )}
       </Card>
 
+      <AuthFilesPrefixProxyEditorModal
+        disableControls={disableControls}
+        editor={prefixProxyEditor}
+        updatedText={prefixProxyUpdatedText}
+        dirty={prefixProxyDirty}
+        onClose={closePrefixProxyEditor}
+        onCopyText={copyTextWithNotification}
+        onRefresh={() => {
+          if (prefixProxyEditor?.fileName) {
+            void handleQwenRefresh(prefixProxyEditor.fileName);
+          }
+        }}
+        onSave={handlePrefixProxySave}
+        onChange={handlePrefixProxyChange}
+      />
+
+      <AuthJsonPasteModal
+        open={authJsonPasteOpen}
+        saving={authJsonPasteSaving}
+        disabled={disableControls}
+        onClose={() => {
+          if (!authJsonPasteSaving) setAuthJsonPasteOpen(false);
+        }}
+        onSave={handleSavePastedAuthJson}
+      />
+
       <Modal
         open={isQwenLoginOpen}
         title="添加 Qwen 账号凭证"
@@ -1195,6 +1268,7 @@ export function AiProvidersOpenAIEditPage() {
             setIsQwenLoginOpen(false);
             setQwenEmail('');
             setQwenPassword('');
+            setQwenCookieInput('');
             setQwenProxy('');
           }
         }}
@@ -1205,15 +1279,22 @@ export function AiProvidersOpenAIEditPage() {
             type="email"
             value={qwenEmail}
             onChange={(e) => setQwenEmail(e.target.value)}
-            placeholder="请输入 Qwen 登录邮箱"
+            placeholder="请输入 Qwen 登录邮箱 (示例: user@qwen.ai)"
             disabled={loggingInQwen}
           />
           <Input
-            label="登录密码"
+            label="登录密码 (密码登录自动获取 Token & Cookie)"
             type="password"
             value={qwenPassword}
             onChange={(e) => setQwenPassword(e.target.value)}
             placeholder="请输入 Qwen 登录密码"
+            disabled={loggingInQwen}
+          />
+          <Input
+            label="Cookie 字符串 (可选 / 手动粘贴 document.cookie)"
+            value={qwenCookieInput}
+            onChange={(e) => setQwenCookieInput(e.target.value)}
+            placeholder="可选粘贴 document.cookie (cna=...; ssxmod_itna=...)"
             disabled={loggingInQwen}
           />
           <Input
@@ -1222,42 +1303,45 @@ export function AiProvidersOpenAIEditPage() {
             onChange={(e) => setQwenProxy(e.target.value)}
             placeholder="账号级代理，例如 http://127.0.0.1:7890"
             disabled={loggingInQwen}
-            hint="配置此项后，该账号的登录与后续 API 调用将优先通过此代理。"
+            hint="配置此项后，该账号的登录与后续 API 调用将优先走此代理。"
           />
         </div>
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '16px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '16px' }}>
           <Button
             variant="secondary"
+            size="sm"
             onClick={() => {
               setIsQwenLoginOpen(false);
-              setQwenEmail('');
-              setQwenPassword('');
-              setQwenProxy('');
+              setAuthJsonPasteOpen(true);
             }}
             disabled={loggingInQwen}
           >
-            {t('common.cancel')}
+            粘贴 Auth JSON / 会话
           </Button>
-          <Button
-            onClick={() => void handleQwenLoginSubmit()}
-            loading={loggingInQwen}
-            disabled={loggingInQwen}
-          >
-            获取凭证并保存
-          </Button>
+          <div style={{ display: 'flex', gap: '12px' }}>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setIsQwenLoginOpen(false);
+                setQwenEmail('');
+                setQwenPassword('');
+                setQwenCookieInput('');
+                setQwenProxy('');
+              }}
+              disabled={loggingInQwen}
+            >
+              {t('common.cancel')}
+            </Button>
+            <Button
+              onClick={() => void handleQwenLoginSubmit()}
+              loading={loggingInQwen}
+              disabled={loggingInQwen}
+            >
+              获取凭证并保存
+            </Button>
+          </div>
         </div>
       </Modal>
-
-      <AuthFilesPrefixProxyEditorModal
-        disableControls={disableControls}
-        editor={prefixProxyEditor}
-        updatedText={prefixProxyUpdatedText}
-        dirty={prefixProxyDirty}
-        onClose={closePrefixProxyEditor}
-        onCopyText={copyTextWithNotification}
-        onSave={handlePrefixProxySave}
-        onChange={handlePrefixProxyChange}
-      />
     </SecondaryScreenShell>
   );
 }

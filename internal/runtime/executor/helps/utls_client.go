@@ -145,6 +145,21 @@ func (t *utlsRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) 
 			delete(t.connections, hostname)
 		}
 		t.mu.Unlock()
+
+		// Retry once with a fresh TLS connection if the cached connection was stale/dead
+		if freshH2Conn, errFresh := t.getOrCreateConnection(hostname, addr); errFresh == nil {
+			respFresh, errFreshRound := freshH2Conn.RoundTrip(req)
+			if errFreshRound == nil {
+				t.mu.Lock()
+				if cached, ok := t.connections[hostname]; ok && cached.conn == freshH2Conn {
+					cached.lastActive = time.Now()
+				}
+				t.lastActive = time.Now()
+				t.mu.Unlock()
+				return respFresh, nil
+			}
+		}
+
 		return nil, err
 	}
 

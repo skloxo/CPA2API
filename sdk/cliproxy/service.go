@@ -256,8 +256,10 @@ func (s *Service) Run(ctx context.Context) error {
 	s.serverErr = make(chan error, 1)
 	go func() {
 		if errStart := s.server.Start(); errStart != nil {
+			log.Errorf("s.server.Start returned error: %v", errStart)
 			s.serverErr <- errStart
 		} else {
+			log.Errorf("s.server.Start returned nil error (server unexpectedly stopped)!")
 			s.serverErr <- nil
 		}
 	}()
