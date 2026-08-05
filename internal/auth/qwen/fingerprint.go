@@ -219,7 +219,7 @@ func ApplyBrowserHeaders(r *http.Request, stream bool) {
 	r.Header.Set("Sec-Fetch-Site", "same-origin")
 	r.Header.Set("Sec-Fetch-Mode", "cors")
 	r.Header.Set("Sec-Fetch-Dest", "empty")
-	r.Header.Set("Referer", QwenAPIBaseURL+"/c/guest")
+	r.Header.Set("Referer", QwenAPIBaseURL+"/")
 	r.Header.Set("Origin", QwenAPIBaseURL)
 	if stream {
 		r.Header.Set("Accept", "text/event-stream")

@@ -224,7 +224,7 @@ func (e *QwenExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, req
 
 	// Apply all anti-detection headers
 	qwenauth.ApplyAllQwenHeaders(httpReq, token, qwenCookie(auth), true)
-	httpReq.Header.Set("User-Agent", helps.GetRandomUserAgent())
+	httpReq.Header.Set("Referer", qwenauth.QwenAPIBaseURL+"/c/"+chatID)
 
 	var attrs map[string]string
 	if auth != nil {
@@ -290,6 +290,18 @@ func (e *QwenExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, req
 			}
 		}
 		err = statusErr{code: httpResp.StatusCode, msg: string(b)}
+		return resp, err
+	}
+
+	contentType := strings.ToLower(httpResp.Header.Get("Content-Type"))
+	if strings.Contains(contentType, "text/html") {
+		b, _ := io.ReadAll(decodedBody)
+		helps.AppendAPIResponseChunk(ctx, e.cfg, b)
+		if auth != nil && auth.ID != "" {
+			registry.GetGlobalRegistry().SetModelQuotaExceeded(auth.ID, "")
+			helps.LogWithRequestID(ctx).Warnf("Qwen auth %s returned Aliyun WAF Captcha HTML (marked quota exceeded for auto-failover)", auth.ID)
+		}
+		err = statusErr{code: 401, msg: "qwen upstream intercepted by Aliyun WAF Captcha (credential requires refresh)"}
 		return resp, err
 	}
 
@@ -581,7 +593,7 @@ func (e *QwenExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Aut
 
 	// Apply all anti-detection headers
 	qwenauth.ApplyAllQwenHeaders(httpReq, token, qwenCookie(auth), true)
-	httpReq.Header.Set("User-Agent", helps.GetRandomUserAgent())
+	httpReq.Header.Set("Referer", qwenauth.QwenAPIBaseURL+"/c/"+chatID)
 
 	var attrs map[string]string
 	if auth != nil {
@@ -653,6 +665,21 @@ func (e *QwenExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Aut
 		return nil, err
 	}
 
+	contentTypeStream := strings.ToLower(httpResp.Header.Get("Content-Type"))
+	if strings.Contains(contentTypeStream, "text/html") {
+		b, _ := io.ReadAll(decodedBody)
+		helps.AppendAPIResponseChunk(ctx, e.cfg, b)
+		if errClose := decodedBody.Close(); errClose != nil {
+			log.Errorf("qwen executor: close response body error: %v", errClose)
+		}
+		if auth != nil && auth.ID != "" {
+			registry.GetGlobalRegistry().SetModelQuotaExceeded(auth.ID, "")
+			helps.LogWithRequestID(ctx).Warnf("Qwen auth %s returned Aliyun WAF Captcha HTML (marked quota exceeded for auto-failover)", auth.ID)
+		}
+		err = statusErr{code: 401, msg: "qwen upstream intercepted by Aliyun WAF Captcha (credential requires refresh)"}
+		return nil, err
+	}
+
 	out := make(chan cliproxyexecutor.StreamChunk)
 	go func() {
 		defer close(out)
@@ -669,6 +696,7 @@ func (e *QwenExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Aut
 
 		for scanner.Scan() {
 			line := string(scanner.Bytes())
+			log.Warnf("qwen scan raw line: %s", line)
 			helps.AppendAPIResponseChunk(ctx, e.cfg, scanner.Bytes())
 
 			// Parse Qwen event-based SSE format
@@ -1001,6 +1029,9 @@ func (e *QwenExecutor) Refresh(ctx context.Context, auth *cliproxyauth.Auth) (*c
 		auth.Metadata = make(map[string]any)
 	}
 	auth.Metadata["access_token"] = result.Token
+	if result.Cookie != "" {
+		auth.Metadata["cookie"] = result.Cookie
+	}
 	if result.Expired != "" {
 		auth.Metadata["expired"] = result.Expired
 	}
@@ -1011,6 +1042,9 @@ func (e *QwenExecutor) Refresh(ctx context.Context, auth *cliproxyauth.Auth) (*c
 
 	if storage, ok := auth.Storage.(*qwenauth.QwenTokenStorage); ok {
 		storage.AccessToken = result.Token
+		if result.Cookie != "" {
+			storage.Cookie = result.Cookie
+		}
 		if result.Expired != "" {
 			storage.Expired = result.Expired
 		}
@@ -1151,7 +1185,10 @@ func isQwenRateLimitOrAuthError(statusCode int, body []byte) (isRateLimit bool, 
 		strings.Contains(bodyStr, "unauthorized") ||
 		strings.Contains(bodyStr, "invalid token") ||
 		strings.Contains(bodyStr, "login required") ||
-		strings.Contains(bodyStr, "auth_failed") {
+		strings.Contains(bodyStr, "auth_failed") ||
+		strings.Contains(bodyStr, "aliyuncaptcha") ||
+		strings.Contains(bodyStr, "x5referer") ||
+		strings.Contains(bodyStr, "nc-container") {
 		return false, true
 	}
 	return false, false

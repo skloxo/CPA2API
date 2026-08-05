@@ -54,6 +54,7 @@ func (h *Handler) PostQwenLogin(c *gin.Context) {
 	// Build token storage
 	storage := &qwen.QwenTokenStorage{
 		AccessToken: result.Token,
+		Cookie:      result.Cookie,
 		Email:       email,
 		Expired:     result.Expired,
 		Password:    password,

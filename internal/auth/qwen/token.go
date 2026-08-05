@@ -17,6 +17,8 @@ import (
 type QwenTokenStorage struct {
 	// AccessToken is the JWT access token for Qwen API authentication.
 	AccessToken string `json:"access_token"`
+	// Cookie holds the session cookies returned during sign-in (e.g. acw_tc WAF tracking cookie).
+	Cookie string `json:"cookie,omitempty"`
 	// Email is the user's Qwen account email address.
 	Email string `json:"email"`
 	// Expired is the RFC3339 timestamp when the access token expires.

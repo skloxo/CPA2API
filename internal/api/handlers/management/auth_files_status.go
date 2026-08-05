@@ -104,6 +104,7 @@ func (h *Handler) PostAuthFileRefresh(c *gin.Context) {
 	// Build token storage and save to file
 	storage := &qwen.QwenTokenStorage{
 		AccessToken: result.Token,
+		Cookie:      result.Cookie,
 		Email:       email,
 		Expired:     result.Expired,
 		Password:    password,

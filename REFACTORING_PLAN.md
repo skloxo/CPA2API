@@ -17,6 +17,11 @@
 
 ## 📝 交付履历 (Delivery Changelog)
 
+### [x] [v7.1.45-s11] - 2026-08-05 ✅ (已全量交付并部署至 8317 生产环境)
+- **Qwen WAF Session Cookie 全量提取与持久化**：重构 `SignIn` 接口与凭证存储 `QwenTokenStorage`，不仅提取 JWT `token`，更将握手时上游发回的所有 `Set-Cookie`（包含 `acw_tc` 阿里云 WAF 追踪 Cookie、`token` 属性 Cookie、`x-ap` 节点 Cookie）全量持久化写入 `qwen-*.json`，彻底解决缺少握手 Cookie 引发 WAF 拦截的根因。
+- **WAF 伪装拦截识别与静默 Failover 机制**：针对阿里云 WAF 返回的 200 OK HTML 页面（包含 `RGV587_ERROR` / `AliyunCaptcha`），增加精准识别捕获逻辑，一旦命中直接标记 `SetModelQuotaExceeded` 并自动无缝 Failover 触发账号轮换，彻底杜绝 0 字节悬挂报错。
+- **OpenAI 转 Qwen 协议特征转换与伪装补齐**：在 `QwenExecutor` 中补齐 `chat_id` 双向绑定、`x-platform: pc_web` 以及基于真实 Chrome TLS ClientHello（utls）的通信伪装，消除与真实 Web 浏览器的差异特征。
+
 ### [x] [v7.1.45-s10] - 2026-08-05 ✅ (已全量交付并升维至 8317 生产环境)
 - **Qwen 反代提供商前端重构与整合**：将 Qwen Web 登录与反代接入重构整合进【AI 提供商】->【添加供应商】统一管理模块（支持接口类型/预设下拉选择），实现与 OpenAI 兼容提供商一致的表单配置与前端控制。
 - **8317 生产环境无缝升维与前端同步**：8317 生产容器 `CPA2API8317` 已升级至 `v7.1.45-s10` 镜像，并且挂载目录 `/home/skloxo/services/cpa2api/static/management.html` 已同步覆写为最新的编译产物。

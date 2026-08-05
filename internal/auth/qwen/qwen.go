@@ -32,6 +32,8 @@ const (
 type QwenAuthResult struct {
 	// Token is the JWT access token returned by Qwen.
 	Token string
+	// Cookie holds the session cookies returned by Qwen sign-in (such as acw_tc WAF tracking cookie).
+	Cookie string
 	// Expired is the RFC3339 timestamp when the token expires, if determinable.
 	Expired string
 }
@@ -76,7 +78,7 @@ func (q *QwenAuth) SignIn(ctx context.Context, email, password, proxyURL string)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36 Edg/134.0.0.0")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36")
 
 	var authObj *cliproxyauth.Auth
 	if strings.TrimSpace(proxyURL) != "" {
@@ -105,6 +107,13 @@ func (q *QwenAuth) SignIn(ctx context.Context, email, password, proxyURL string)
 		return nil, fmt.Errorf("qwen: sign-in failed with status %d: %s", resp.StatusCode, string(respBody))
 	}
 
+	// Extract all Set-Cookie headers returned by sign-in (e.g. acw_tc, token, x-ap)
+	var cookieParts []string
+	for _, cookie := range resp.Cookies() {
+		cookieParts = append(cookieParts, cookie.Name+"="+cookie.Value)
+	}
+	cookieHeader := strings.Join(cookieParts, "; ")
+
 	var result struct {
 		Token    string `json:"token"`
 		Exp      int64  `json:"exp"`
@@ -120,7 +129,8 @@ func (q *QwenAuth) SignIn(ctx context.Context, email, password, proxyURL string)
 	}
 
 	authResult := &QwenAuthResult{
-		Token: result.Token,
+		Token:  result.Token,
+		Cookie: cookieHeader,
 	}
 	if result.Exp > 0 {
 		authResult.Expired = time.Unix(result.Exp, 0).UTC().Format(time.RFC3339)
