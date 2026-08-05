@@ -18,7 +18,8 @@
 ## 📝 交付履历 (Delivery Changelog)
 
 ### [x] [v7.1.45-s10] - 2026-08-05 ✅ (已全量交付并升维至 8317 生产环境)
-- **8317 生产环境无缝升维**：8317 生产容器 `CPA2API8317` 已成功升级至最新的 `v7.1.45-s10` 镜像。
+- **Qwen 反代提供商前端重构与整合**：将 Qwen Web 登录与反代接入重构整合进【AI 提供商】->【添加供应商】统一管理模块（支持接口类型/预设下拉选择），实现与 OpenAI 兼容提供商一致的表单配置与前端控制。
+- **8317 生产环境无缝升维与前端同步**：8317 生产容器 `CPA2API8317` 已升级至 `v7.1.45-s10` 镜像，并且挂载目录 `/home/skloxo/services/cpa2api/static/management.html` 已同步覆写为最新的编译产物。
 - **线上全量 14+ 厂商兼容验证**：导入 8317 生产配置与 10 个千问 Auth 凭证进行联通验证，OpenRouter、Groq、白山、NVIDIA、opencode、llm7、MIMO-SGP、商汤、agnes、skyclaw、cline、dahl 等 32 个模型别名映射 100% 物理无缝兼容。
 - **资产全量物理备份**：配置文件、凭证库及数据库已被安全备份至 `/home/skloxo/services/cpa2api/backups/pre_s10_upgrade_20260805/`。
 - **Qwen 模型白名单隔离**：消除了 24 个预设千问模型泄露问题，接口与系统管理面板严格收敛为配置的 `qwen3.7-plus` 与 `qwen3.8-max`。

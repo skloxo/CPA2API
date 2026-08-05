@@ -95,6 +95,7 @@ graph TD
 
 ## ✨ 核心特性
 
+*   **🌐 Qwen Web 提供商与控制面板重构**：将 Qwen 反代接入全量重构整合进“AI 提供商 -> 添加供应商”统一模块（支持接口类型/预设下拉选择），实现与通用 OpenAI 兼容接口一致的表单管理与动态配置。
 *   **🔒 Qwen Web 动态隔离与白名单控制**：物理级收敛隐藏未配置的 24 个预设千问模型，模型列表与管理界面只纯净展示用户配置的目标模型（如 `qwen3.7-plus` 与 `qwen3.8-max`）。
 *   **⚡ 1M (1,000,000 Tokens / 200万字符) 极限长上下文**：通过 TCP Keep-Alive 与无效空节点清洗，彻底突破 Web 网关 WAF `EOF` 断线限制，`512K Tokens (~200万字符)` 单包极速稳定交付，吞吐大幅提升 3 倍。
 *   **🔄 Rate-Limit 自动感知与无缝切账号 (Failover)**：捕获 429 Too Many Requests、401 Unauthorized 及 QuotaExceeded 特征后自动将受限账号设为 CoolDown，配合多账号 Selector 自动无缝切换账号，客户端 0 报错。
