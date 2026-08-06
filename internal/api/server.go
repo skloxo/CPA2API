@@ -840,7 +840,22 @@ func (s *Server) serveManagementControlPanel(c *gin.Context) {
 		}
 	}
 
-	c.File(filePath)
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		c.AbortWithStatus(http.StatusInternalServerError)
+		return
+	}
+
+	// Dynamic Cache-Busting: Append build version query parameter to scripts and styles
+	htmlStr := string(data)
+	ver := fmt.Sprintf("%d", time.Now().UnixNano())
+	htmlStr = strings.ReplaceAll(htmlStr, ".js\"", ".js?v="+ver+"\"")
+	htmlStr = strings.ReplaceAll(htmlStr, ".css\"", ".css?v="+ver+"\"")
+
+	c.Header("Cache-Control", "no-cache, no-store, must-revalidate, max-age=0")
+	c.Header("Pragma", "no-cache")
+	c.Header("Expires", "0")
+	c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(htmlStr))
 }
 
 func (s *Server) enableKeepAlive(timeout time.Duration, onTimeout func()) {

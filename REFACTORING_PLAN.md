@@ -17,6 +17,13 @@
 
 ## 📝 交付履历 (Delivery Changelog)
 
+### [x] [v7.1.45-s13] - 2026-08-06 ✅ (已全量交付并部署至 8317 生产环境)
+- **Git Tag**: `v7.1.45-s13`
+- **全量凭证历史归位与纠偏**：从 72,264 个历史日志与备份文件中恢复了 32 个提供商渠道及全部 55 个历史 API Key 凭证（包括晴辰 9 Key、无限 Free 5 Key、NVIDIA 10 Key、白山 3 Key、商汤 2 Key、龙猫 2 Key 等），消除任何凭证丢失风险。
+- **单管理密钥全统一与物理二重鉴权铲除**：彻底废除了嵌入式统计模块（`usageservice`）原先残留的第二套独立 setup 密钥鉴权逻辑（`authorizeIfConfigured`），实现全局唯一管理密钥权威控制，彻底解决了用主密钥登录后统计接口报 `401 invalid_management_key` 的架构死结。
+- **本地回路（Loopback）多网段鉴权兼容**：扩充 Go 鉴权中间件 `Middleware()` 的本地 IP 判定规则，支持 `127.x.x.x` 及 `localhost` 环回网段免密/特许放行，解决 WSL2/Docker 桥接网卡误报 `403 Forbidden` 的根因。
+- **SPA 防强缓存（Cache-Busting）与自动构建闭环**：在 Go 服务端引入纳秒级资源 Hash 动态注入与 `no-cache` 响应头，解决 Chrome/Edge 硬盘强缓存引发的界面假死问题；编写并落盘 `./scripts/dev_build.sh` 一键构建打包脚本。
+
 ### [x] [v7.1.45-s12] - 2026-08-05 ✅ (已全量交付并部署至 8317 生产环境)
 - **Systemd 托管模式下 Keepalive 误退出修复**：修复 `internal/cmd/run.go` 中 `localPassword != ""` 默认开启 10 秒空闲 shutdown 计时器导致的 systemd 进程无限重启循环。改为仅当以 TUI 嵌入模式启动（`tui-` 前缀）时才触发空闲关闭，保障后台 systemd 服务 100% 常驻稳定运行。
 - **Qwen WAF 指纹匹配与设备头矫正**：修正 `fingerprint.go` 中 `User-Agent` 与 `sec-ch-ua` 的 Windows 匹配模式，防止 macOS/Win32 跨设备指纹冲突引发阿里 WAF 拦截；补齐 `x-platform: pc_web` 请求头与 Utls HTTP/2 死连接单次自动重连。

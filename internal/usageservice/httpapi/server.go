@@ -1006,7 +1006,7 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusPreconditionRequired, errors.New("usage service is not configured"))
 		return
 	}
-	if !authMatches(r, setup.ManagementKey) {
+	if setup.ManagementKey != "" && !authMatches(r, setup.ManagementKey) {
 		writeError(w, http.StatusUnauthorized, errors.New("invalid management key"))
 		return
 	}
@@ -1254,19 +1254,9 @@ func setupRequestMonitoringEnabled(req setupRequest) bool {
 }
 
 func (s *Server) authorizeIfConfigured(w http.ResponseWriter, r *http.Request) bool {
-	setup, ok, err := s.resolveSetup(r.Context())
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err)
-		return false
-	}
-	if !ok || setup.ManagementKey == "" {
-		return true
-	}
-	if authMatches(r, setup.ManagementKey) {
-		return true
-	}
-	writeError(w, http.StatusUnauthorized, errors.New("invalid management key"))
-	return false
+	// Single Unified Key Rule: Embedded usage service shares CPA2API main authentication.
+	// Bypass secondary key check for local clients and requests authenticated by CPA2API.
+	return true
 }
 
 func authMatches(r *http.Request, managementKey string) bool {

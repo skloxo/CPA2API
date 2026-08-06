@@ -11,7 +11,7 @@ import (
 // Defaults cover local development builds.
 var (
 	// Version is the semantic version or git describe output of the binary.
-	Version = "dev"
+	Version = "v7.1.45-s13"
 
 	// Commit is the git commit SHA baked into the binary.
 	Commit = "none"
@@ -21,8 +21,8 @@ var (
 )
 
 func init() {
-	if Version == "dev" {
-		Version = gitDescribe()
+	if Version == "dev" || Version == "" {
+		Version = "v7.1.45-s13"
 	}
 	if BuildDate == "unknown" {
 		BuildDate = time.Now().UTC().Format(time.RFC3339)
