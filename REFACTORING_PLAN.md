@@ -15,7 +15,9 @@
 
 ---
 
-## 📝 交付履历 (Delivery Changelog)
+### [x] [v7.1.45-s14] - 2026-08-12 ✅ (已全量交付并部署至 8317 生产环境)
+- **Git Commit**: `6805d56f` | **Git Tag**: `v7.1.45-s14`
+- **前端配置原子刷盘与持久化保证 (f.Sync Hardware Flush)**：在 `internal/api/handlers/management/handler.go` 中重构 `persistLocked` 方法，并在 `internal/config/config_yaml.go` 保存逻辑后追加 `f.Sync()` 物理刷写。彻底解决用户在 Web 控制台上修改/添加模型别名及 Key 后仅保存在内存中、系统重启导致前端配置丢包失效的根因问题。
 
 ### [x] [v7.1.45-s13] - 2026-08-06 ✅ (已全量交付并部署至 8317 生产环境)
 - **Git Tag**: `v7.1.45-s13`
