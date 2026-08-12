@@ -169,7 +169,59 @@ func (h *Handler) APICall(c *gin.Context) {
 
 	var requestBody io.Reader
 	if body.Data != "" {
-		requestBody = strings.NewReader(body.Data)
+		requestDataStr := body.Data
+		// 后端物理关卡全厂商通用强校验：从客户端到 CPA 用别名，从 CPA 到上游厂商 100% 还原为厂商原本名称
+		if h.cfg != nil {
+			replaceAliasWithName := func(alias, name string) {
+				if alias != "" && alias != name {
+					searchPattern := fmt.Sprintf(`"model":"%s"`, alias)
+					replacePattern := fmt.Sprintf(`"model":"%s"`, name)
+					requestDataStr = strings.ReplaceAll(requestDataStr, searchPattern, replacePattern)
+
+					searchPatternSpace := fmt.Sprintf(`"model": "%s"`, alias)
+					replacePatternSpace := fmt.Sprintf(`"model": "%s"`, name)
+					requestDataStr = strings.ReplaceAll(requestDataStr, searchPatternSpace, replacePatternSpace)
+				}
+			}
+
+			// 1. OpenAI 兼容全厂商 (Cohere, DeepSeek, Qwen, OpenRouter, Groq, 龙猫, MIMO, 白山, 商汤等)
+			for _, provider := range h.cfg.OpenAICompatibility {
+				for _, m := range provider.Models {
+					replaceAliasWithName(m.Alias, m.Name)
+				}
+			}
+			// 2. Gemini 厂商通道
+			for _, key := range h.cfg.GeminiKey {
+				for _, m := range key.Models {
+					replaceAliasWithName(m.Alias, m.Name)
+				}
+			}
+			// 3. Claude 厂商通道
+			for _, key := range h.cfg.ClaudeKey {
+				for _, m := range key.Models {
+					replaceAliasWithName(m.Alias, m.Name)
+				}
+			}
+			// 4. Codex 厂商通道
+			for _, key := range h.cfg.CodexKey {
+				for _, m := range key.Models {
+					replaceAliasWithName(m.Alias, m.Name)
+				}
+			}
+			// 5. Vertex 厂商通道
+			for _, key := range h.cfg.VertexCompatAPIKey {
+				for _, m := range key.Models {
+					replaceAliasWithName(m.Alias, m.Name)
+				}
+			}
+			// 6. 全局 OAuth 别名通道 (Kimi, xAI, Antigravity, Qwen Web)
+			for _, aliases := range h.cfg.OAuthModelAlias {
+				for _, m := range aliases {
+					replaceAliasWithName(m.Alias, m.Name)
+				}
+			}
+		}
+		requestBody = strings.NewReader(requestDataStr)
 	}
 
 	req, errNewRequest := http.NewRequestWithContext(c.Request.Context(), method, urlStr, requestBody)

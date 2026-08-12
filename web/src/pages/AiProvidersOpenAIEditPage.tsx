@@ -441,11 +441,17 @@ export function AiProvidersOpenAIEditPage() {
         return false;
       }
 
-      const modelName = testModel.trim() || availableModels[0] || '';
-      if (!modelName) {
+      const selectedModelInput = testModel.trim() || availableModels[0] || '';
+      if (!selectedModelInput) {
         showNotification(t('notification.openai_test_model_required'), 'error');
         return false;
       }
+
+      // 强校验与解耦：将输入的别名 100% 物理转换还原为左侧官方原始模型名 (name)，绝不把别名发送给官方
+      const matchedEntry = form.modelEntries.find(
+        (e) => e.name.trim() === selectedModelInput || e.alias.trim() === selectedModelInput
+      );
+      const modelName = matchedEntry?.name.trim() || selectedModelInput;
 
       const customHeaders = buildHeaderObject(form.headers);
       const headers: Record<string, string> = {
