@@ -283,6 +283,11 @@ export function AiProvidersOpenAIEditPage() {
   const [loggingInQwen, setLoggingInQwen] = useState(false);
 
   const handleOpenQwenOAuthBridge = () => {
+    setAuthJsonPasteOpen(false);
+    setQwenEmail('');
+    setQwenPassword('');
+    setQwenCookieInput('');
+    setQwenProxy('');
     setIsQwenLoginOpen(true);
   };
 

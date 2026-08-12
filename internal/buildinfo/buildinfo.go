@@ -21,7 +21,7 @@ var (
 )
 
 func init() {
-	if Version == "dev" || Version == "" {
+	if Version == "dev" || Version == "" || strings.HasPrefix(Version, "dev-") {
 		Version = "v7.1.45-s13"
 	}
 	if BuildDate == "unknown" {
@@ -32,8 +32,8 @@ func init() {
 // gitDescribe runs git describe --tags --always --dirty to get version info.
 func gitDescribe() string {
 	out, err := exec.Command("git", "describe", "--tags", "--always", "--dirty").Output()
-	if err != nil {
-		return "dev-" + time.Now().UTC().Format("20060102150405")
+	if err != nil || len(out) == 0 {
+		return Version
 	}
 	return strings.TrimSpace(string(out))
 }

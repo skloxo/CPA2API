@@ -2142,7 +2142,9 @@ export function MonitoringCenterPage() {
   );
 
   const monitoringUnavailable =
-    !requestMonitoringAvailability.checking && !requestMonitoringAvailability.available;
+    !requestMonitoringAvailability.checking &&
+    !requestMonitoringAvailability.available &&
+    requestMonitoringAvailability.reason !== 'service_not_configured';
   const monitoringUnavailableTitle =
     requestMonitoringAvailability.reason === 'monitoring_disabled'
       ? t('monitoring.request_monitoring_disabled_title')

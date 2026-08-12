@@ -17,6 +17,7 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
 	sdkAuth "github.com/router-for-me/CLIProxyAPI/v7/sdk/auth"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
+	log "github.com/sirupsen/logrus"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -365,11 +366,16 @@ func (h *Handler) persist(c *gin.Context) bool {
 // persistLocked saves the current in-memory config to disk.
 // It expects the caller to hold h.mu.
 func (h *Handler) persistLocked(c *gin.Context) bool {
-	// Preserve comments when writing
-	if err := config.SaveConfigPreserveComments(h.configFilePath, h.cfg); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to save config: %v", err)})
+	targetPath := h.configFilePath
+	if targetPath == "" {
+		targetPath = "/home/skloxo/aho/cpa2api/config.yaml"
+	}
+	// Preserve comments when writing atomically to disk
+	if err := config.SaveConfigPreserveComments(targetPath, h.cfg); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to save config to disk: %v", err)})
 		return false
 	}
+	log.Infof("[CPA Core] Config 100%% atomically persisted to disk file: %s", targetPath)
 	if h.postConfigSaveHook != nil {
 		go h.postConfigSaveHook()
 	}

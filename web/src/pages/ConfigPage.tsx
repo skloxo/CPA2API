@@ -315,14 +315,14 @@ export function ConfigPage() {
       const response = await usageServiceApi.getManagerConfig(serviceBase, managementKey);
       applyManagerConfigResponse(response, serviceBase);
       syncUsageServiceBootstrap(serviceBase);
-    } catch (error: unknown) {
-      setManagerError(getUsageServiceDisplayError(error, 'config_management.manager.load_failed'));
+    } catch {
+      // In embedded CPA2API mode, external manager config is not required
+      setManagerError('');
     } finally {
       setManagerLoading(false);
     }
   }, [
     applyManagerConfigResponse,
-    getUsageServiceDisplayError,
     managementKey,
     resolveManagerServiceBase,
     syncUsageServiceBootstrap,

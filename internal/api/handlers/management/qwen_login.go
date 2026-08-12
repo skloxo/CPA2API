@@ -15,6 +15,7 @@ type qwenLoginRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
 	Cookie   string `json:"cookie,omitempty"`
+	Proxy    string `json:"proxy,omitempty"`
 }
 
 // PostQwenLogin handles POST /qwen-login requests.
@@ -34,12 +35,16 @@ func (h *Handler) PostQwenLogin(c *gin.Context) {
 	email := strings.TrimSpace(req.Email)
 	password := strings.TrimSpace(req.Password)
 	userCookie := strings.TrimSpace(req.Cookie)
+	proxyURL := strings.TrimSpace(req.Proxy)
+	if proxyURL == "" {
+		proxyURL = h.cfg.ProxyURL
+	}
 
 	var accessToken, expired, finalCookie string
 	if password != "" && !strings.HasPrefix(password, "eyJ") {
 		// Sign in with Qwen via email/password if provided
 		auth := qwen.NewQwenAuth(h.cfg)
-		result, err := auth.SignIn(context.Background(), email, password, "")
+		result, err := auth.SignIn(context.Background(), email, password, proxyURL)
 		if err != nil && userCookie == "" {
 			log.Errorf("qwen login failed for %s: %v", email, err)
 			c.JSON(http.StatusBadGateway, gin.H{"status": "error", "message": err.Error()})

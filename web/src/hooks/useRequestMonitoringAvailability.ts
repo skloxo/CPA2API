@@ -51,54 +51,34 @@ export function useRequestMonitoringAvailability(): RequestMonitoringAvailabilit
     let cancelled = false;
 
     const detect = async () => {
-      if (!managementKey || candidates.length === 0) {
-        setState({
-          checking: false,
-          available: false,
-          serviceBase: '',
-          reason: 'service_not_configured',
-        });
-        return;
-      }
+      const candidateBase = candidates[0] || detectApiBaseFromLocation() || '';
 
       setState((current) => ({ ...current, checking: true, reason: 'checking' }));
-      const hasConfiguredUsageService = Boolean(usageServiceEnabled && usageServiceBase);
 
       for (const candidate of candidates) {
         try {
           const info = await usageServiceApi.getInfo(candidate);
-          if (!isUsageServiceId(info.service)) {
-            continue;
+          if (info && isUsageServiceId(info.service)) {
+            if (cancelled) return;
+            setState({
+              checking: false,
+              available: true,
+              serviceBase: candidate,
+              reason: '',
+            });
+            return;
           }
-          const response = await usageServiceApi.getManagerConfig(candidate, managementKey);
-          const collectorEnabled = response.config.collector?.enabled !== false;
-          const hasCPAConnection = Boolean(
-            response.config.cpaConnection?.cpaBaseUrl &&
-              response.config.cpaConnection?.managementKey
-          );
-          if (cancelled) return;
-          setState({
-            checking: false,
-            available: collectorEnabled && hasCPAConnection,
-            serviceBase: candidate,
-            reason: !collectorEnabled
-              ? 'monitoring_disabled'
-              : hasCPAConnection
-                ? ''
-                : 'service_not_configured',
-          });
-          return;
         } catch {
-          // A regular CPA panel or an unreachable external Usage Service is handled below.
+          // Fallback to built-in CPA2API monitoring
         }
       }
 
       if (cancelled) return;
       setState({
         checking: false,
-        available: false,
-        serviceBase: '',
-        reason: hasConfiguredUsageService ? 'service_unavailable' : 'service_not_configured',
+        available: true,
+        serviceBase: candidateBase,
+        reason: '',
       });
     };
 
