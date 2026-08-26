@@ -89,7 +89,7 @@ export function OpenAISection({
   const actionsDisabled = disableControls || loading || isSwitching;
   const toggleDisabled = disableControls || loading || isSwitching;
   const [sortOption, setSortOption] = useState<SortOption>('priority');
-  const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const [selectedModels, setSelectedModels] = useState<Set<string>>(new Set());
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [dropdownLayout, setDropdownLayout] = useState({ openAbove: false, maxHeight: 300 });
@@ -231,17 +231,39 @@ export function OpenAISection({
     };
   }, [floatingToolbarStyle.visible, isDropdownOpen]);
 
-  const allModelNames = useMemo(() => {
-    const modelSet = new Set<string>();
+  interface ModelFilterOption {
+    id: string;
+    name: string;
+    alias?: string;
+    label: string;
+  }
+
+  const allModelOptions = useMemo<ModelFilterOption[]>(() => {
+    const optionMap = new Map<string, ModelFilterOption>();
     configs.forEach((provider) => {
       provider.models?.forEach((model) => {
-        if (model.name) {
-          modelSet.add(model.name);
+        const rawName = model.name?.trim();
+        const alias = model.alias?.trim();
+        if (!rawName && !alias) return;
+
+        const primaryName = alias || rawName || '';
+        const hasDifferentAlias = Boolean(alias && rawName && alias !== rawName);
+        const label = hasDifferentAlias ? `${alias} (${rawName})` : primaryName;
+
+        if (primaryName && !optionMap.has(primaryName)) {
+          optionMap.set(primaryName, {
+            id: primaryName,
+            name: rawName || primaryName,
+            alias: hasDifferentAlias ? alias : undefined,
+            label,
+          });
         }
       });
     });
-    return Array.from(modelSet).sort();
+    return Array.from(optionMap.values()).sort((a, b) => a.id.localeCompare(b.id));
   }, [configs]);
+
+  const allModelNames = useMemo(() => allModelOptions.map((opt) => opt.id), [allModelOptions]);
   const selectedModelNames = useMemo(() => Array.from(selectedModels).sort(), [selectedModels]);
   const modelFilterActive = selectedModelNames.length > 0;
   const modelFilterLabel = modelFilterActive
@@ -275,11 +297,19 @@ export function OpenAISection({
     const indexed = configs.map((config, originalIndex) => ({ config, originalIndex }));
     const filtered = indexed.filter(({ config }) => {
       if (selectedModels.size === 0) return true;
-      return config.models?.some((model) => selectedModels.has(model.name));
+      return config.models?.some((model) => {
+        const rawName = model.name?.trim();
+        const alias = model.alias?.trim();
+        const primaryName = alias || rawName || '';
+        return (
+          (primaryName && selectedModels.has(primaryName)) ||
+          (rawName && selectedModels.has(rawName)) ||
+          (alias && selectedModels.has(alias))
+        );
+      });
     });
 
     const sorted = [...filtered];
-    const direction = sortDirection === 'desc' ? -1 : 1;
     const providerStats =
       sortOption === 'recent-success'
         ? new Map(
@@ -292,32 +322,26 @@ export function OpenAISection({
 
     switch (sortOption) {
       case 'name':
-        sorted.sort((a, b) => direction * a.config.name.localeCompare(b.config.name));
+        sorted.sort((a, b) => (sortDirection === 'asc' ? 1 : -1) * a.config.name.localeCompare(b.config.name));
         break;
       case 'priority':
         sorted.sort((a, b) => {
-          const priorityA = a.config.priority ?? Number.MAX_SAFE_INTEGER;
-          const priorityB = b.config.priority ?? Number.MAX_SAFE_INTEGER;
-          const priorityDiff = priorityA - priorityB;
-
-          if (priorityDiff !== 0) {
-            return direction * priorityDiff;
+          const priorityA = a.config.priority ?? 0;
+          const priorityB = b.config.priority ?? 0;
+          if (priorityA !== priorityB) {
+            return sortDirection === 'desc' ? priorityB - priorityA : priorityA - priorityB;
           }
-
-          return direction * a.config.name.localeCompare(b.config.name);
+          return a.config.name.localeCompare(b.config.name);
         });
         break;
       case 'recent-success':
         sorted.sort((a, b) => {
-          const successDiff =
-            (providerStats?.get(a.config)?.success ?? 0) -
-            (providerStats?.get(b.config)?.success ?? 0);
-
-          if (successDiff !== 0) {
-            return direction * successDiff;
+          const successA = providerStats?.get(a.config)?.success ?? 0;
+          const successB = providerStats?.get(b.config)?.success ?? 0;
+          if (successA !== successB) {
+            return sortDirection === 'desc' ? successB - successA : successA - successB;
           }
-
-          return direction * a.config.name.localeCompare(b.config.name);
+          return a.config.name.localeCompare(b.config.name);
         });
         break;
       default:
@@ -481,20 +505,20 @@ export function OpenAISection({
                 role="group"
                 aria-label={t('ai_providers.model_search_placeholder')}
               >
-                {allModelNames.length === 0 ? (
+                {allModelOptions.length === 0 ? (
                   <div className={styles.modelDropdownEmpty}>
                     {t('ai_providers.model_filter_empty')}
                   </div>
                 ) : (
-                  allModelNames.map((name) => (
+                  allModelOptions.map((opt) => (
                     <SelectionCheckbox
-                      key={`top-option-${name}`}
-                      checked={selectedModels.has(name)}
-                      onChange={() => toggleModelSelection(name)}
+                      key={`top-option-${opt.id}`}
+                      checked={selectedModels.has(opt.id)}
+                      onChange={() => toggleModelSelection(opt.id)}
                       disabled={actionsDisabled}
                       className={styles.modelDropdownItem}
                       labelClassName={styles.modelDropdownItemLabel}
-                      label={<span title={name}>{name}</span>}
+                      label={<span title={opt.label}>{opt.label}</span>}
                     />
                   ))
                 )}
@@ -676,14 +700,24 @@ export function OpenAISection({
           </div>
           {provider.models?.length ? (
             <div className={styles.modelTagList}>
-              {provider.models.map((model) => (
-                <span key={model.name} className={styles.modelTag}>
-                  <span className={styles.modelName}>{model.name}</span>
-                  {model.alias && model.alias !== model.name && (
-                    <span className={styles.modelAlias}>{model.alias}</span>
-                  )}
-                </span>
-              ))}
+              {provider.models.map((model) => {
+                const hasAlias = Boolean(model.alias && model.alias !== model.name);
+                const primaryName = hasAlias ? model.alias! : model.name;
+                const secondaryName = hasAlias ? model.name : null;
+
+                return (
+                  <span
+                    key={model.name || model.alias}
+                    className={styles.modelTag}
+                    title={hasAlias ? `原始名称: ${model.name}` : ''}
+                  >
+                    <span className={styles.modelName}>{primaryName}</span>
+                    {secondaryName && (
+                      <span className={styles.modelAlias}>({secondaryName})</span>
+                    )}
+                  </span>
+                );
+              })}
             </div>
           ) : null}
           {provider.testModel && (

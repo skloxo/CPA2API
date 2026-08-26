@@ -6,7 +6,7 @@ SERVICE_STATIC="/home/skloxo/services/cpa2api/static"
 DEV_STATIC="/home/skloxo/aho/cpa2api/static"
 SERVICE_BIN="/home/skloxo/aho/cpa2api/cpa2api"
 USR_BIN="/usr/local/bin/cpa2api"
-VERSION="v7.1.45-s13"
+VERSION="v7.1.45-s15"
 BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
 
 echo "🚀 [1/4] Building Vite Frontend SPA..."
@@ -15,6 +15,8 @@ npx vite build
 
 echo "📦 [2/4] Syncing production assets to service static directory..."
 mkdir -p "${SERVICE_STATIC}" "${DEV_STATIC}"
+cp ../static/index.html ../static/management.html
+cp ../static/index.html "${PROJECT_ROOT}/internal/usageservice/httpapi/web/management.html"
 cp -r ../static/* "${SERVICE_STATIC}/"
 cp -r ../static/* "${DEV_STATIC}/"
 

@@ -133,11 +133,84 @@ export function SystemPage() {
 
   const apiKeysCache = useRef<string[]>([]);
 
+  useEffect(() => {
+    void fetchConfig().catch(() => {});
+  }, [fetchConfig]);
+
+  const modelAliasLookup = useMemo(() => {
+    const rawToAlias = new Map<string, string>();
+    const aliasToRaw = new Map<string, string>();
+    if (!config) return { rawToAlias, aliasToRaw };
+
+    if (Array.isArray(config.openaiCompatibility)) {
+      config.openaiCompatibility.forEach((provider) => {
+        if (Array.isArray(provider.models)) {
+          provider.models.forEach((m) => {
+            const rawName = m.name?.trim();
+            const alias = m.alias?.trim();
+            if (rawName && alias && alias !== rawName) {
+              rawToAlias.set(rawName.toLowerCase(), alias);
+              rawToAlias.set(rawName, alias);
+              aliasToRaw.set(alias.toLowerCase(), rawName);
+              aliasToRaw.set(alias, rawName);
+            }
+          });
+        }
+      });
+    }
+
+    const rawConfig = config as Record<string, unknown>;
+    const directAliases = rawConfig?.modelAliases || rawConfig?.['model-aliases'];
+    if (Array.isArray(directAliases)) {
+      directAliases.forEach((entry) => {
+        if (entry && typeof entry === 'object') {
+          const raw = (entry.name || entry.model || entry.source)?.trim();
+          const alias = (entry.alias || entry.target)?.trim();
+          if (raw && alias && raw !== alias) {
+            rawToAlias.set(raw.toLowerCase(), alias);
+            rawToAlias.set(raw, alias);
+            aliasToRaw.set(alias.toLowerCase(), raw);
+            aliasToRaw.set(alias, raw);
+          }
+        }
+      });
+    }
+
+    return { rawToAlias, aliasToRaw };
+  }, [config]);
+
+  const enrichedModels = useMemo(() => {
+    return models.map((m) => {
+      const currentName = (m.name || '').trim();
+      const existingAlias = (m.alias || '').trim();
+
+      let primaryName = currentName;
+      let rawName: string | undefined = undefined;
+
+      if (existingAlias && existingAlias !== currentName) {
+        primaryName = existingAlias;
+        rawName = currentName;
+      } else if (modelAliasLookup.aliasToRaw.has(currentName) || modelAliasLookup.aliasToRaw.has(currentName.toLowerCase())) {
+        primaryName = currentName;
+        rawName = modelAliasLookup.aliasToRaw.get(currentName) || modelAliasLookup.aliasToRaw.get(currentName.toLowerCase());
+      } else if (modelAliasLookup.rawToAlias.has(currentName) || modelAliasLookup.rawToAlias.has(currentName.toLowerCase())) {
+        primaryName = modelAliasLookup.rawToAlias.get(currentName) || modelAliasLookup.rawToAlias.get(currentName.toLowerCase())!;
+        rawName = currentName;
+      }
+
+      return {
+        ...m,
+        name: primaryName,
+        alias: rawName && rawName !== primaryName ? rawName : undefined,
+      };
+    });
+  }, [models, modelAliasLookup]);
+
   const otherLabel = useMemo(
     () => (i18n.language?.toLowerCase().startsWith('zh') ? '其他' : 'Other'),
     [i18n.language]
   );
-  const groupedModels = useMemo(() => classifyModels(models, { otherLabel }), [models, otherLabel]);
+  const groupedModels = useMemo(() => classifyModels(enrichedModels, { otherLabel }), [enrichedModels, otherLabel]);
 
   const apiVersion = auth.serverVersion || t('system_info.version_unknown');
   const buildTime = auth.serverBuildDate && auth.serverBuildDate !== 'unknown' && auth.serverBuildDate !== 'none'
