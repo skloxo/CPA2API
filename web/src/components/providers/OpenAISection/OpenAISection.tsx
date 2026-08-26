@@ -231,39 +231,21 @@ export function OpenAISection({
     };
   }, [floatingToolbarStyle.visible, isDropdownOpen]);
 
-  interface ModelFilterOption {
-    id: string;
-    name: string;
-    alias?: string;
-    label: string;
-  }
-
-  const allModelOptions = useMemo<ModelFilterOption[]>(() => {
-    const optionMap = new Map<string, ModelFilterOption>();
+  const allModelNames = useMemo<string[]>(() => {
+    const modelSet = new Set<string>();
     configs.forEach((provider) => {
       provider.models?.forEach((model) => {
         const rawName = model.name?.trim();
         const alias = model.alias?.trim();
-        if (!rawName && !alias) return;
-
-        const primaryName = alias || rawName || '';
-        const hasDifferentAlias = Boolean(alias && rawName && alias !== rawName);
-        const label = hasDifferentAlias ? `${alias} (${rawName})` : primaryName;
-
-        if (primaryName && !optionMap.has(primaryName)) {
-          optionMap.set(primaryName, {
-            id: primaryName,
-            name: rawName || primaryName,
-            alias: hasDifferentAlias ? alias : undefined,
-            label,
-          });
+        const displayName = alias || rawName;
+        if (displayName) {
+          modelSet.add(displayName);
         }
       });
     });
-    return Array.from(optionMap.values()).sort((a, b) => a.id.localeCompare(b.id));
+    return Array.from(modelSet).sort((a, b) => a.localeCompare(b));
   }, [configs]);
 
-  const allModelNames = useMemo(() => allModelOptions.map((opt) => opt.id), [allModelOptions]);
   const selectedModelNames = useMemo(() => Array.from(selectedModels).sort(), [selectedModels]);
   const modelFilterActive = selectedModelNames.length > 0;
   const modelFilterLabel = modelFilterActive
@@ -505,20 +487,20 @@ export function OpenAISection({
                 role="group"
                 aria-label={t('ai_providers.model_search_placeholder')}
               >
-                {allModelOptions.length === 0 ? (
+                {allModelNames.length === 0 ? (
                   <div className={styles.modelDropdownEmpty}>
                     {t('ai_providers.model_filter_empty')}
                   </div>
                 ) : (
-                  allModelOptions.map((opt) => (
+                  allModelNames.map((name) => (
                     <SelectionCheckbox
-                      key={`top-option-${opt.id}`}
-                      checked={selectedModels.has(opt.id)}
-                      onChange={() => toggleModelSelection(opt.id)}
+                      key={`top-option-${name}`}
+                      checked={selectedModels.has(name)}
+                      onChange={() => toggleModelSelection(name)}
                       disabled={actionsDisabled}
                       className={styles.modelDropdownItem}
                       labelClassName={styles.modelDropdownItemLabel}
-                      label={<span title={opt.label}>{opt.label}</span>}
+                      label={<span title={name}>{name}</span>}
                     />
                   ))
                 )}
@@ -701,20 +683,15 @@ export function OpenAISection({
           {provider.models?.length ? (
             <div className={styles.modelTagList}>
               {provider.models.map((model) => {
-                const hasAlias = Boolean(model.alias && model.alias !== model.name);
-                const primaryName = hasAlias ? model.alias! : model.name;
-                const secondaryName = hasAlias ? model.name : null;
+                const displayName = model.alias?.trim() || model.name?.trim();
+                if (!displayName) return null;
 
                 return (
                   <span
-                    key={model.name || model.alias}
+                    key={displayName}
                     className={styles.modelTag}
-                    title={hasAlias ? `原始名称: ${model.name}` : ''}
                   >
-                    <span className={styles.modelName}>{primaryName}</span>
-                    {secondaryName && (
-                      <span className={styles.modelAlias}>({secondaryName})</span>
-                    )}
+                    <span className={styles.modelName}>{displayName}</span>
                   </span>
                 );
               })}

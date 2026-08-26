@@ -540,12 +540,11 @@ export function SystemPage() {
                     <div className={styles.modelTags}>
                       {group.items.map((model) => (
                         <span
-                          key={`${model.name}-${model.alias ?? 'default'}`}
+                          key={model.name}
                           className={styles.modelTag}
                           title={model.description || ''}
                         >
                           <span className={styles.modelName}>{model.name}</span>
-                          {model.alias && <span className={styles.modelAlias}>{model.alias}</span>}
                         </span>
                       ))}
                     </div>
