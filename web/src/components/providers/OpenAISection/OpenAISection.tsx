@@ -682,19 +682,14 @@ export function OpenAISection({
           </div>
           {provider.models?.length ? (
             <div className={styles.modelTagList}>
-              {provider.models.map((model) => {
-                const displayName = model.alias?.trim() || model.name?.trim();
-                if (!displayName) return null;
-
-                return (
-                  <span
-                    key={displayName}
-                    className={styles.modelTag}
-                  >
-                    <span className={styles.modelName}>{displayName}</span>
-                  </span>
-                );
-              })}
+              {provider.models.map((model) => (
+                <span key={model.name} className={styles.modelTag}>
+                  <span className={styles.modelName}>{model.name}</span>
+                  {model.alias && model.alias !== model.name && (
+                    <span className={styles.modelAlias}>{model.alias}</span>
+                  )}
+                </span>
+              ))}
             </div>
           ) : null}
           {provider.testModel && (
