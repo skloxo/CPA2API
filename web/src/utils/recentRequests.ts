@@ -1,6 +1,7 @@
 export type StatusBlockState = 'success' | 'failure' | 'mixed' | 'idle';
 
 export interface StatusBlockDetail {
+  time?: string;
   success: number;
   failure: number;
   rate: number;
@@ -168,13 +169,25 @@ export function sumRecentRequests(
 export function statusBarDataFromRecentRequests(buckets: RecentRequestBucket[]): StatusBarData {
   const normalizedBuckets = normalizeRecentRequestBuckets(buckets);
   const emptyBucketCount = Math.max(0, RECENT_REQUEST_BLOCK_COUNT - normalizedBuckets.length);
-  const blockStats = [
-    ...Array.from({ length: emptyBucketCount }, () => ({ success: 0, failed: 0 })),
+  const blockStats: RecentRequestBucket[] = [
+    ...Array.from({ length: emptyBucketCount }, () => ({ success: 0, failed: 0 } as RecentRequestBucket)),
     ...normalizedBuckets.slice(-RECENT_REQUEST_BLOCK_COUNT),
   ];
 
-  const now = Date.now();
-  const windowStart = now - RECENT_REQUEST_BLOCK_COUNT * RECENT_REQUEST_BLOCK_DURATION_MS;
+  const nowDate = new Date();
+  const currentHourDate = new Date(
+    nowDate.getFullYear(),
+    nowDate.getMonth(),
+    nowDate.getDate(),
+    nowDate.getHours(),
+    0,
+    0,
+    0
+  );
+  const currentHourStart = currentHourDate.getTime();
+  // 24 natural hours: 23 past natural hours + 1 current in-progress natural hour
+  const windowStart =
+    currentHourStart - (RECENT_REQUEST_BLOCK_COUNT - 1) * RECENT_REQUEST_BLOCK_DURATION_MS;
 
   const blocks: StatusBlockState[] = [];
   const blockDetails: StatusBarData['blockDetails'] = [];
@@ -201,6 +214,7 @@ export function statusBarDataFromRecentRequests(buckets: RecentRequestBucket[]):
 
     const blockStartTime = windowStart + index * RECENT_REQUEST_BLOCK_DURATION_MS;
     blockDetails.push({
+      time: bucket.time,
       success,
       failure,
       rate: total > 0 ? success / total : -1,

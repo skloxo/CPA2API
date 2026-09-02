@@ -58,11 +58,14 @@ func (h *Handler) GetAPIKeyUsage(c *gin.Context) {
 		return
 	}
 
-	// Load persisted SQLite totals keyed by auth_index. This is a best-effort
-	// read; on failure (nil map) we gracefully fall back to memory-only data.
+	// Load persisted SQLite totals and 24-hour hourly buckets keyed by auth_index.
+	// This is a best-effort read; on failure (nil map) we gracefully fall back to memory-only data.
 	sqliteTotals := h.loadSQLiteTotals(c.Request.Context())
-
 	now := time.Now()
+	currentBucketID := now.Unix() / 3600
+	baseBucketID := currentBucketID - 23
+	sqliteHourly := h.loadSQLiteHourlyBuckets(c.Request.Context(), baseBucketID)
+
 	out := make(map[string]map[string]apiKeyUsageEntry)
 	for _, auth := range manager.List() {
 		if auth == nil {
@@ -90,6 +93,24 @@ func (h *Handler) GetAPIKeyUsage(c *gin.Context) {
 		}
 
 		recent := auth.RecentRequestsSnapshot(now)
+		authIdx := auth.EnsureIndex()
+
+		// Overlay SQLite 24 natural hour buckets
+		if sqliteHourly != nil {
+			if sqBuckets, ok := sqliteHourly[authIdx]; ok {
+				for k := range recent {
+					bID := currentBucketID - int64(len(recent)-1-k)
+					if sqB, has := sqBuckets[bID]; has {
+						if sqB.Success > recent[k].Success {
+							recent[k].Success = sqB.Success
+						}
+						if sqB.Failed > recent[k].Failed {
+							recent[k].Failed = sqB.Failed
+						}
+					}
+				}
+			}
+		}
 
 		// Merge SQLite historical totals with in-memory counters.
 		// Strategy: take max(memory, sqlite) so that after a restart the
@@ -98,7 +119,6 @@ func (h *Handler) GetAPIKeyUsage(c *gin.Context) {
 		memSuccess := auth.Success
 		memFailed := auth.Failed
 		if sqliteTotals != nil {
-			authIdx := auth.EnsureIndex()
 			if sq, ok := sqliteTotals[authIdx]; ok {
 				if sq.Success > memSuccess {
 					memSuccess = sq.Success

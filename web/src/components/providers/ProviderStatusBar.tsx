@@ -99,11 +99,17 @@ export function ProviderStatusBar({ statusData, styles: stylesProp }: ProviderSt
   const renderTooltip = (detail: StatusBlockDetail, idx: number) => {
     const total = detail.success + detail.failure;
     const posClass = getTooltipPositionClass(idx, statusData.blockDetails.length);
-    const timeRange = `${formatTime(detail.startTime)} – ${formatTime(detail.endTime)}`;
+    const isCurrentHour = idx === statusData.blockDetails.length - 1;
+    const timeRange = detail.time
+      ? detail.time.replace('-', ' – ')
+      : `${formatTime(detail.startTime)} – ${formatTime(detail.endTime)}`;
 
     return (
       <div className={`${s.statusTooltip} ${posClass}`}>
-        <span className={s.tooltipTime}>{timeRange}</span>
+        <span className={s.tooltipTime}>
+          {timeRange}
+          {isCurrentHour ? ` (${t('status_bar.in_progress', { defaultValue: '当前' })})` : ''}
+        </span>
         {total > 0 ? (
           <span className={s.tooltipStats}>
             <span className={s.tooltipSuccess}>{t('status_bar.success_short')} {detail.success}</span>

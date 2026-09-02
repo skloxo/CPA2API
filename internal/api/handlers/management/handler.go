@@ -169,6 +169,31 @@ func (h *Handler) loadSQLiteTotals(ctx context.Context) map[string]store.Provide
 	return m
 }
 
+// loadSQLiteHourlyBuckets queries the usage store for recent 24 hourly buckets keyed by auth_index and bucket_id.
+func (h *Handler) loadSQLiteHourlyBuckets(ctx context.Context, baseBucketID int64) map[string]map[int64]store.HourlyBucketTotal {
+	h.mu.Lock()
+	s := h.usageStore
+	h.mu.Unlock()
+	if s == nil {
+		return nil
+	}
+	rows, err := s.ProviderRecentHourlyBuckets(ctx, baseBucketID)
+	if err != nil {
+		log.WithError(err).Warn("[management] failed to load SQLite hourly buckets")
+		return nil
+	}
+	m := make(map[string]map[int64]store.HourlyBucketTotal)
+	for _, r := range rows {
+		sub, ok := m[r.AuthIndex]
+		if !ok {
+			sub = make(map[int64]store.HourlyBucketTotal)
+			m[r.AuthIndex] = sub
+		}
+		sub[r.BucketID] = r
+	}
+	return m
+}
+
 
 // SetLogDirectory updates the directory where main.log should be looked up.
 func (h *Handler) SetLogDirectory(dir string) {

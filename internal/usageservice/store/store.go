@@ -1174,6 +1174,52 @@ func (s *Store) ProviderAuthTotals(ctx context.Context) ([]ProviderAuthTotal, er
 	return out, rows.Err()
 }
 
+// HourlyBucketTotal represents success/failure counts for a specific natural hour bucket.
+type HourlyBucketTotal struct {
+	Provider  string
+	AuthIndex string
+	BucketID  int64
+	Success   int64
+	Failed    int64
+}
+
+// ProviderRecentHourlyBuckets queries usage_events for aggregated counts grouped by
+// (provider, auth_index, natural_hour_bucket_id) since the cutoff timestamp (baseBucketID * 3600 * 1000).
+// This enables the 24 natural hour sliding bar chart to be pre-populated across restarts.
+func (s *Store) ProviderRecentHourlyBuckets(ctx context.Context, baseBucketID int64) ([]HourlyBucketTotal, error) {
+	if s == nil || s.db == nil {
+		return nil, nil
+	}
+	const q = `
+		SELECT provider,
+		       auth_index,
+		       (timestamp_ms / 1000 / 3600) AS bucket_id,
+		       SUM(CASE WHEN failed = 0 THEN 1 ELSE 0 END) AS success,
+		       SUM(CASE WHEN failed = 1 THEN 1 ELSE 0 END) AS failed
+		FROM usage_events
+		WHERE timestamp_ms >= ?
+		  AND auth_index IS NOT NULL
+		  AND auth_index != ''
+		  AND provider IS NOT NULL
+		  AND provider != ''
+		GROUP BY provider, auth_index, bucket_id`
+	cutoffMS := baseBucketID * 3600 * 1000
+	rows, err := s.db.QueryContext(ctx, q, cutoffMS)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []HourlyBucketTotal
+	for rows.Next() {
+		var b HourlyBucketTotal
+		if err := rows.Scan(&b.Provider, &b.AuthIndex, &b.BucketID, &b.Success, &b.Failed); err != nil {
+			return nil, err
+		}
+		out = append(out, b)
+	}
+	return out, rows.Err()
+}
+
 // PruneOldEvents cleans up raw detailed event logs older than maxAgeDays while preserving
 // all historical aggregate stats in usage_daily_stats. It also triggers a passive WAL checkpoint
 // to reclaim disk space.
