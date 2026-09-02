@@ -22,6 +22,20 @@
 
 ---
 
+### [x] [v7.2.122] - 2026-09-02 ✅ (已全量交付并部署至 8317 生产环境)
+- **Git Commit**: `69e7fefe` | **Git Tag**: `v7.2.122`
+- **单文件编译构建链路闭环与 24 状态块实机核销 (Build Pipeline Automation & Real-Browser Verification)**：
+  1. **构建中断根因排查**：发现 `MainLayout.tsx` 存在未使用的冗余 import 导致 `tsc` 报错阻断了 `vite build` 执行，导致此前编译产物未实际被重新生成；
+  2. **构建流水线原子同步**：修复 TypeScript 类型告警，并在 `web/package.json` 的 `npm run build` 流程中注入单文件自动同步命令（自动复制到 `static/management.html` 与 `usageservice`）；
+  3. **实机无头浏览器端到端核销**：通过 `browser_subagent` 启动无头真实 Chrome 浏览器登录生产面板实测，确认所有卡片（Mac Studio, openrouter 等）**100% 物理渲染 24 个状态方块**，Hover 严格呈现自然整点小时 `15:00 – 16:00`，截图完成归档。
+- **修改文件**：
+  - `web/src/components/layout/MainLayout.tsx`：清除未使用的 hook 与变量声明
+  - `web/package.json`：完善 build 构建流水线产物同步指令
+  - `static/management.html` & `internal/usageservice/httpapi/web/management.html`：完成全量重新构建并部署
+- **验证结果**：无头浏览器 DOM 真实核销 100% 通过（24 个状态方块与自然时钟整点小时）。
+
+---
+
 ### [x] [v7.2.121] - 2026-09-02 ✅ (已全量交付并部署至 8317 生产环境)
 - **Git Commit**: `7d3b216b` | **Git Tag**: `v7.2.121`
 - **自然时钟整点对齐与 24 小时柱状图 SQLite 持久化 (Natural Clock Hours & 24h SQLite Overlay)**：
