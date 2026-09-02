@@ -73,8 +73,8 @@ func TestGetAPIKeyUsage_GroupsByProviderAndAPIKey(t *testing.T) {
 	if codexEntry.Success != 1 || codexEntry.Failed != 1 {
 		t.Fatalf("codex totals = %d/%d, want 1/1", codexEntry.Success, codexEntry.Failed)
 	}
-	if len(codexEntry.RecentRequests) != 20 {
-		t.Fatalf("codex buckets len = %d, want 20", len(codexEntry.RecentRequests))
+	if len(codexEntry.RecentRequests) != 24 {
+		t.Fatalf("codex buckets len = %d, want 24", len(codexEntry.RecentRequests))
 	}
 	codexSuccess, codexFailed := sumRecentRequestBuckets(codexEntry.RecentRequests)
 	if codexSuccess != 1 || codexFailed != 1 {
@@ -85,8 +85,8 @@ func TestGetAPIKeyUsage_GroupsByProviderAndAPIKey(t *testing.T) {
 	if claudeEntry.Success != 1 || claudeEntry.Failed != 0 {
 		t.Fatalf("claude totals = %d/%d, want 1/0", claudeEntry.Success, claudeEntry.Failed)
 	}
-	if len(claudeEntry.RecentRequests) != 20 {
-		t.Fatalf("claude buckets len = %d, want 20", len(claudeEntry.RecentRequests))
+	if len(claudeEntry.RecentRequests) != 24 {
+		t.Fatalf("claude buckets len = %d, want 24", len(claudeEntry.RecentRequests))
 	}
 	claudeSuccess, claudeFailed := sumRecentRequestBuckets(claudeEntry.RecentRequests)
 	if claudeSuccess != 1 || claudeFailed != 0 {

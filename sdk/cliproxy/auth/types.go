@@ -101,8 +101,8 @@ type Auth struct {
 }
 
 const (
-	recentRequestBucketSeconds int64 = 10 * 60
-	recentRequestBucketCount         = 20
+	recentRequestBucketSeconds int64 = 60 * 60
+	recentRequestBucketCount         = 24
 )
 
 type recentRequestBucket struct {
