@@ -393,6 +393,7 @@ func NewServer(cfg *config.Config, authManager *auth.Manager, accessManager *sdk
 	// provider stats survive process restarts.
 	if s.usageStore != nil {
 		s.mgmt.SetStore(s.usageStore)
+		s.usageStore.StartAutoPruner(context.Background(), 30, 6*time.Hour)
 	}
 	s.localPassword = optionState.localPassword
 

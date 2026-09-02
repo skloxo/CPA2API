@@ -227,6 +227,27 @@ func (s *Store) init() error {
 		`create index if not exists idx_usage_events_model on usage_events(model)`,
 		`create index if not exists idx_usage_events_auth_index on usage_events(auth_index)`,
 		`create index if not exists idx_usage_events_endpoint on usage_events(endpoint)`,
+		`create index if not exists idx_usage_events_prov_auth_fail on usage_events(provider, auth_index, failed)`,
+		`create index if not exists idx_usage_events_time_model on usage_events(timestamp_ms, model)`,
+		`create table if not exists usage_daily_stats (
+			stat_date text not null,
+			provider text not null,
+			auth_index text not null,
+			model text not null,
+			total_requests integer not null default 0,
+			success_count integer not null default 0,
+			failed_count integer not null default 0,
+			input_tokens integer not null default 0,
+			output_tokens integer not null default 0,
+			reasoning_tokens integer not null default 0,
+			cached_tokens integer not null default 0,
+			total_tokens integer not null default 0,
+			total_latency_ms integer not null default 0,
+			updated_at_ms integer not null default 0,
+			primary key (stat_date, provider, auth_index, model)
+		)`,
+		`create index if not exists idx_usage_daily_stats_prov_auth on usage_daily_stats(provider, auth_index)`,
+		`create index if not exists idx_usage_daily_stats_date on usage_daily_stats(stat_date)`,
 		`create table if not exists dead_letter_events (
 			id integer primary key autoincrement,
 			payload text not null,
@@ -263,6 +284,65 @@ func (s *Store) init() error {
 	if err := s.ensureUsageEventSnapshotColumns(); err != nil {
 		return err
 	}
+	if err := s.migrateHistoricalDailyStats(); err != nil {
+		log.WithError(err).Warn("[usage-store] migrateHistoricalDailyStats warning")
+	}
+	return nil
+}
+
+func (s *Store) migrateHistoricalDailyStats() error {
+	var val string
+	err := s.db.QueryRow(`select value from settings where key = 'daily_stats_migrated_v1'`).Scan(&val)
+	if err == nil && val != "" {
+		return nil
+	}
+
+	const migrationSQL = `
+	insert into usage_daily_stats (
+		stat_date, provider, auth_index, model,
+		total_requests, success_count, failed_count,
+		input_tokens, output_tokens, reasoning_tokens, cached_tokens, total_tokens,
+		total_latency_ms, updated_at_ms
+	)
+	select 
+		case 
+			when length(timestamp) >= 10 then substr(timestamp, 1, 10)
+			else strftime('%Y-%m-%d', timestamp_ms / 1000, 'unixepoch')
+		end as stat_date,
+		coalesce(nullif(provider, ''), 'unknown') as provider,
+		coalesce(nullif(auth_index, ''), 'unknown') as auth_index,
+		coalesce(nullif(model, ''), 'unknown') as model,
+		count(*) as total_requests,
+		sum(case when failed = 0 then 1 else 0 end) as success_count,
+		sum(case when failed = 1 then 1 else 0 end) as failed_count,
+		sum(input_tokens) as input_tokens,
+		sum(output_tokens) as output_tokens,
+		sum(reasoning_tokens) as reasoning_tokens,
+		sum(cached_tokens + cache_tokens) as cached_tokens,
+		sum(total_tokens) as total_tokens,
+		sum(coalesce(latency_ms, 0)) as total_latency_ms,
+		strftime('%s', 'now') * 1000 as updated_at_ms
+	from usage_events
+	group by stat_date, provider, auth_index, model
+	on conflict (stat_date, provider, auth_index, model) do update set
+		total_requests = excluded.total_requests,
+		success_count = excluded.success_count,
+		failed_count = excluded.failed_count,
+		input_tokens = excluded.input_tokens,
+		output_tokens = excluded.output_tokens,
+		reasoning_tokens = excluded.reasoning_tokens,
+		cached_tokens = excluded.cached_tokens,
+		total_tokens = excluded.total_tokens,
+		total_latency_ms = excluded.total_latency_ms,
+		updated_at_ms = excluded.updated_at_ms;`
+
+	if _, err := s.db.Exec(migrationSQL); err != nil {
+		return fmt.Errorf("daily stats historical migration failed: %w", err)
+	}
+
+	nowMS := time.Now().UnixMilli()
+	_, _ = s.db.Exec(`insert or replace into settings (key, value, updated_at_ms) values ('daily_stats_migrated_v1', 'true', ?)`, nowMS)
+	log.Infof("[usage-store] successfully migrated historical usage events into usage_daily_stats")
 	return nil
 }
 
@@ -763,7 +843,33 @@ func (s *Store) InsertEvents(ctx context.Context, events []usage.Event) (InsertR
 	}
 	defer stmt.Close()
 
+	rollupStmt, err := tx.PrepareContext(ctx, `
+		insert into usage_daily_stats (
+			stat_date, provider, auth_index, model,
+			total_requests, success_count, failed_count,
+			input_tokens, output_tokens, reasoning_tokens, cached_tokens, total_tokens,
+			total_latency_ms, updated_at_ms
+		) values (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		on conflict (stat_date, provider, auth_index, model) do update set
+			total_requests = total_requests + 1,
+			success_count = success_count + excluded.success_count,
+			failed_count = failed_count + excluded.failed_count,
+			input_tokens = input_tokens + excluded.input_tokens,
+			output_tokens = output_tokens + excluded.output_tokens,
+			reasoning_tokens = reasoning_tokens + excluded.reasoning_tokens,
+			cached_tokens = cached_tokens + excluded.cached_tokens,
+			total_tokens = total_tokens + excluded.total_tokens,
+			total_latency_ms = total_latency_ms + excluded.total_latency_ms,
+			updated_at_ms = excluded.updated_at_ms
+	`)
+	if err != nil {
+		return InsertResult{}, err
+	}
+	defer rollupStmt.Close()
+
 	result := InsertResult{}
+	nowMS := time.Now().UnixMilli()
+
 	for _, event := range events {
 		failed := 0
 		if event.Failed {
@@ -810,6 +916,54 @@ func (s *Store) InsertEvents(ctx context.Context, events []usage.Event) (InsertR
 		affected, _ := res.RowsAffected()
 		if affected > 0 {
 			result.Inserted++
+
+			// Upsert to daily summary table for permanent lightweight rollups
+			var statDate string
+			if len(event.Timestamp) >= 10 {
+				statDate = event.Timestamp[:10]
+			} else if event.TimestampMS > 0 {
+				statDate = time.UnixMilli(event.TimestampMS).UTC().Format("2006-01-02")
+			} else {
+				statDate = time.Now().UTC().Format("2006-01-02")
+			}
+			prov := strings.TrimSpace(event.Provider)
+			if prov == "" {
+				prov = "unknown"
+			}
+			authIdx := strings.TrimSpace(event.AuthIndex)
+			if authIdx == "" {
+				authIdx = "unknown"
+			}
+			mdl := strings.TrimSpace(event.Model)
+			if mdl == "" {
+				mdl = "unknown"
+			}
+			sucCount := int64(1 - failed)
+			failCount := int64(failed)
+			latency := int64(0)
+			if event.LatencyMS != nil {
+				latency = *event.LatencyMS
+			}
+			cachedToks := event.CachedTokens + event.CacheTokens
+
+			if _, err := rollupStmt.ExecContext(
+				ctx,
+				statDate,
+				prov,
+				authIdx,
+				mdl,
+				sucCount,
+				failCount,
+				event.InputTokens,
+				event.OutputTokens,
+				event.ReasoningTokens,
+				cachedToks,
+				event.TotalTokens,
+				latency,
+				nowMS,
+			); err != nil {
+				return InsertResult{}, err
+			}
 		} else {
 			result.Skipped++
 		}
@@ -986,9 +1140,9 @@ type ProviderAuthTotal struct {
 }
 
 // ProviderAuthTotals returns per-(provider, auth_index) success/failure totals
-// from the usage_events table. Rows with a NULL provider or auth_index are skipped.
-// This enables the management API to return persistent provider stats that survive
-// process restarts, complementing the in-memory real-time counters.
+// from the pre-aggregated usage_daily_stats table. Rows with 'unknown' or empty
+// provider/auth_index are skipped. This enables the management API to return
+// persistent provider stats in sub-millisecond time without full-table scans.
 func (s *Store) ProviderAuthTotals(ctx context.Context) ([]ProviderAuthTotal, error) {
 	if s == nil || s.db == nil {
 		return nil, nil
@@ -996,12 +1150,12 @@ func (s *Store) ProviderAuthTotals(ctx context.Context) ([]ProviderAuthTotal, er
 	const q = `
 		SELECT provider,
 		       auth_index,
-		       SUM(CASE WHEN failed = 0 THEN 1 ELSE 0 END) AS success,
-		       SUM(CASE WHEN failed = 1 THEN 1 ELSE 0 END) AS failed
-		FROM usage_events
-		WHERE auth_index IS NOT NULL
+		       SUM(success_count) AS success,
+		       SUM(failed_count) AS failed
+		FROM usage_daily_stats
+		WHERE auth_index != 'unknown'
 		  AND auth_index != ''
-		  AND provider IS NOT NULL
+		  AND provider != 'unknown'
 		  AND provider != ''
 		GROUP BY provider, auth_index`
 	rows, err := s.db.QueryContext(ctx, q)
@@ -1018,4 +1172,60 @@ func (s *Store) ProviderAuthTotals(ctx context.Context) ([]ProviderAuthTotal, er
 		out = append(out, t)
 	}
 	return out, rows.Err()
+}
+
+// PruneOldEvents cleans up raw detailed event logs older than maxAgeDays while preserving
+// all historical aggregate stats in usage_daily_stats. It also triggers a passive WAL checkpoint
+// to reclaim disk space.
+func (s *Store) PruneOldEvents(ctx context.Context, maxAgeDays int) (int64, error) {
+	if s == nil || s.db == nil || maxAgeDays <= 0 {
+		return 0, nil
+	}
+	cutoffMS := time.Now().AddDate(0, 0, -maxAgeDays).UnixMilli()
+	res, err := s.db.ExecContext(ctx, `delete from usage_events where timestamp_ms < ?`, cutoffMS)
+	if err != nil {
+		return 0, err
+	}
+	rowsDeleted, _ := res.RowsAffected()
+
+	// Clean up old dead letter events too
+	_, _ = s.db.ExecContext(ctx, `delete from dead_letter_events where created_at_ms < ?`, cutoffMS)
+
+	// Passive WAL checkpoint to manage wal file size
+	_, _ = s.db.ExecContext(ctx, `pragma wal_checkpoint(PASSIVE)`)
+
+	if rowsDeleted > 0 {
+		log.Infof("[usage-store] pruned %d raw usage events older than %d days (cutoff: %s)",
+			rowsDeleted, maxAgeDays, time.UnixMilli(cutoffMS).Format(time.RFC3339))
+	}
+	return rowsDeleted, nil
+}
+
+// StartAutoPruner starts a background worker that periodically purges old raw events.
+func (s *Store) StartAutoPruner(ctx context.Context, maxAgeDays int, interval time.Duration) {
+	if s == nil || maxAgeDays <= 0 {
+		return
+	}
+	if interval <= 0 {
+		interval = 6 * time.Hour
+	}
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		// Initial run after 1 minute
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(1 * time.Minute):
+			_, _ = s.PruneOldEvents(ctx, maxAgeDays)
+		}
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				_, _ = s.PruneOldEvents(ctx, maxAgeDays)
+			}
+		}
+	}()
 }
