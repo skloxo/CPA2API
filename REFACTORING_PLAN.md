@@ -22,6 +22,23 @@
 
 ---
 
+### [x] [v7.2.118] - 2026-09-02 ✅ (已全量交付并部署至 8317 生产环境)
+- **Git Commit**: `9f891ba9` | **Git Tag**: `v7.2.118`
+- **供应商卡片统计数据 SQLite 持久化 (Provider Stats SQLite Persistence)**：
+  1. 根本原因：`/v0/management/api-key-usage` 端点数据完全来自进程内存，CPA 进程重启后所有提供商成功/失败计数归零；
+  2. 修复方案：在 `GetAPIKeyUsage` handler 中叠加 SQLite `usage_events` 的历史聚合数据，合并策略为 `max(内存计数, sqlite历史)`，保证重启后仍展示完整历史统计；
+  3. `auth_index`（`Auth.EnsureIndex()` 产生的 sha256 8字节 hex）作为内存与 SQLite 的 join key，无需暴露明文 API Key；
+  4. `RecentRequestBucket`（20 分钟时间桶折线图）保持内存快照，仅 total 计数来自 SQLite，轻量无副作用；
+  5. `store.ProviderAuthTotals()` 为 best-effort 只读查询，查询失败自动降级为纯内存模式，CPA 主服务不受影响。
+- **修改文件**：
+  - `internal/usageservice/store/store.go`：新增 `ProviderAuthTotal` 类型 + `ProviderAuthTotals()` SQLite 聚合查询
+  - `internal/api/handlers/management/handler.go`：新增 `usageStore` 字段、`SetStore()`、`loadSQLiteTotals()`
+  - `internal/api/handlers/management/api_key_usage.go`：`GetAPIKeyUsage` 加入 SQLite 叠加逻辑
+  - `internal/api/server.go`：startup 时注入 `s.usageStore` 给 management handler
+- **验证结果**：重启后立即从 SQLite 读取到 17 个供应商、751 成功 + 150 失败历史数据，公网 `https://cpa.tide.red/management.html#/providers` 卡片实时显示正常。
+
+---
+
 ### [x] [v7.1.45-s14] - 2026-08-12 ✅ (已全量交付并部署至 8317 生产环境)
 - **Git Commit**: `6805d56f` | **Git Tag**: `v7.1.45-s14`
 - **前端配置原子刷盘与持久化保证 (f.Sync Hardware Flush)**：在 `internal/api/handlers/management/handler.go` 中重构 `persistLocked` 方法，并在 `internal/config/config_yaml.go` 保存逻辑后追加 `f.Sync()` 物理刷写。彻底解决用户在 Web 控制台上修改/添加模型别名及 Key 后仅保存在内存中、系统重启导致前端配置丢包失效的根因问题。
