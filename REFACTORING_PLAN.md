@@ -22,6 +22,20 @@
 
 ---
 
+### [x] [v7.2.119] - 2026-09-02 ✅ (已全量交付并部署至 8317 生产环境)
+- **Git Commit**: `85869ad4` | **Git Tag**: `v7.2.119`
+- **统计数据预聚合与生命周期滚动治理 (Daily Rollup Stats & Auto-Pruning TTL)**：
+  1. **历史数据 100% 平滑平移与无缝兼容**：在 `Store.init()` 中集成 `migrateHistoricalDailyStats()` 自动数据迁移机制，将历史所有 `usage_events` 历史数据以原子方式聚合写入新汇总表 `usage_daily_stats`，确保历史指标 0 丢包；
+  2. **轻量预聚合表架构（Rollup Architecture）**：创建 `usage_daily_stats (stat_date, provider, auth_index, model)`，在 `InsertEvents()` 写入时实时增量累加（Upsert），实现供应商与宏观大盘毫秒级极速直读，彻底消除原始流水全表扫描；
+  3. **数据生命周期自动清理（TTL Auto-Pruning Worker）**：新增 `PruneOldEvents` 与后台滚动清理器 `StartAutoPruner`（30 天明细保留期，每 6 小时自动执行），超期流水自动清理，同时保留聚合统计；
+  4. **复合覆盖索引加固**：针对时间、模型、供应商、认证哈希创建复合索引，并集成 `PRAGMA wal_checkpoint(PASSIVE)` 自动截断，避免 SQLite 文件体积无界膨胀。
+- **修改文件**：
+  - `internal/usageservice/store/store.go`：新增 `usage_daily_stats` 表、历史数据自动迁移、`InsertEvents` 实时 Upsert、`ProviderAuthTotals` 极速直读、`PruneOldEvents` / `StartAutoPruner`
+  - `internal/api/server.go`：启动 `s.usageStore.StartAutoPruner` 后台治理任务
+- **验证结果**：单元测试 100% 通过；生产环境实测加载 17 个提供商、758 成功次统计数据毫秒级返回，历史数据无缝衔接。
+
+---
+
 ### [x] [v7.2.118] - 2026-09-02 ✅ (已全量交付并部署至 8317 生产环境)
 - **Git Commit**: `9f891ba9` | **Git Tag**: `v7.2.118`
 - **供应商卡片统计数据 SQLite 持久化 (Provider Stats SQLite Persistence)**：
