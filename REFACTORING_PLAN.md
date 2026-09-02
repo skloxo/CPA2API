@@ -22,6 +22,20 @@
 
 ---
 
+### [x] [v7.2.121] - 2026-09-02 ✅ (已全量交付并部署至 8317 生产环境)
+- **Git Commit**: `7d3b216b` | **Git Tag**: `v7.2.121`
+- **自然时钟整点对齐与 24 小时柱状图 SQLite 持久化 (Natural Clock Hours & 24h SQLite Overlay)**：
+  1. **严格自然整点小时切片**：24 个格子严格对齐为 **前 23 个自然整点小时 + 当前进行中的这 1 个自然小时**（例如 `15:00-16:00`、`16:00-17:00` ... `19:00-20:00 (当前)`），彻底切除浮动分钟偏移；
+  2. **24 小时柱状图 SQLite 叠加持久化**：新增 `Store.ProviderRecentHourlyBuckets()`，在查询时叠加 SQLite 最近 24 小时的调用聚合数据，即使系统重启也能立即显示过去 24 小时内的真实活跃柱状图；
+  3. **前端 Tooltip 与时间轴精准对齐**：前端直接利用整点时间戳与自然小时标签渲染 Tooltip，最后一格清晰标注当前进行中。
+- **修改文件**：
+  - `internal/usageservice/store/store.go`：新增 `HourlyBucketTotal` 与 `ProviderRecentHourlyBuckets`
+  - `internal/api/handlers/management/handler.go` & `api_key_usage.go`：叠加 SQLite 24 小时自然小时桶
+  - `web/src/utils/recentRequests.ts` & `ProviderStatusBar.tsx`：整点时钟对齐与 Tooltip 优化
+- **验证结果**：Go 单元测试 100% 通过；生产环境实测成功还原 24 个整点小时桶并叠加 SQLite 历史记录。
+
+---
+
 ### [x] [v7.2.120] - 2026-09-02 ✅ (已全量交付并部署至 8317 生产环境)
 - **Git Commit**: `4434c0bb` | **Git Tag**: `v7.2.120`
 - **实时监控滑动窗口升维至近 24 小时 (24-Hour Sliding Window & 24 Hourly Buckets)**：
