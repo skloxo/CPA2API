@@ -79,7 +79,7 @@
 - **验证结果**：单元测试 100% 通过；生产环境实测加载 17 个提供商、758 成功次统计数据毫秒级返回，历史数据无缝衔接。
 
 ### [x] [v7.2.123] - 2026-09-02 ✅ (已全量交付并部署至 8317 生产环境)
-- **Git Commit**: `待提交` | **Git Tag**: `v7.2.123`
+- **Git Commit**: `fadabfe8` | **Git Tag**: `v7.2.123`
 - **CPA 运行架构大扫除与秒级优雅停机加固 (Snappy Graceful Shutdown & Zero-Lag Build Loop)**：
   1. **彻底根除假死病灶**：在 `sdk/cliproxy/service.go` 与 `internal/api/server.go` 中，将优雅停机超时从过长的 30s 收敛至 **3s**，并在退出时主动调用 `SetKeepAlivesEnabled(false)` 与强制关闭 Listener，彻底消除长连接挂起霸占 8317 端口导致的“假死”假象；
   2. **磁盘冗余与古董构建彻底清理**：物理清除 `web/dist` 古董残留目录，归档清理运行目录下的 `cpa2api.bak_pre_sqlite_stats` (54MB) 与冗余 `.bak` 配置；
