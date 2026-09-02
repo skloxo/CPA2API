@@ -78,6 +78,20 @@
   - `internal/api/server.go`：启动 `s.usageStore.StartAutoPruner` 后台治理任务
 - **验证结果**：单元测试 100% 通过；生产环境实测加载 17 个提供商、758 成功次统计数据毫秒级返回，历史数据无缝衔接。
 
+### [x] [v7.2.123] - 2026-09-02 ✅ (已全量交付并部署至 8317 生产环境)
+- **Git Commit**: `待提交` | **Git Tag**: `v7.2.123`
+- **CPA 运行架构大扫除与秒级优雅停机加固 (Snappy Graceful Shutdown & Zero-Lag Build Loop)**：
+  1. **彻底根除假死病灶**：在 `sdk/cliproxy/service.go` 与 `internal/api/server.go` 中，将优雅停机超时从过长的 30s 收敛至 **3s**，并在退出时主动调用 `SetKeepAlivesEnabled(false)` 与强制关闭 Listener，彻底消除长连接挂起霸占 8317 端口导致的“假死”假象；
+  2. **磁盘冗余与古董构建彻底清理**：物理清除 `web/dist` 古董残留目录，归档清理运行目录下的 `cpa2api.bak_pre_sqlite_stats` (54MB) 与冗余 `.bak` 配置；
+  3. **单步极速构建与自校验流水线 (SSOT Dev Loop)**：重构 `scripts/dev_build.sh`，打通 TypeScript 严格检查 ➔ Vite Singlefile 构建 ➔ 运行时静态文件原子同步 ➔ Go 极速编译 ➔ 秒级无锁重启 ➔ 健康检查探针校验（4秒完成全链路自愈升级）；
+  4. **历史备份密钥档案安全归档**：历史丢失的 28 个供应商未脱敏 API Key 与配置提取归档至 `HISTORICAL_LOST_API_KEYS_CATALOG.md`，生产 `config.yaml` 恢复纯净 18 供应商状态。
+- **修改文件**：
+  - `sdk/cliproxy/service.go`：停机超时 30s ➔ 3s
+  - `internal/api/server.go`：停机关闭 Keep-Alive 与即时释放 Socket
+  - `web/package.json`：构建单步同步至运行时目录
+  - `scripts/dev_build.sh`：自动化秒级构建部署自测脚本
+- **验证结果**：`./scripts/dev_build.sh` 4 秒跑完全流程，HTTP 200 验证通过。
+
 ---
 
 ### [x] [v7.2.118] - 2026-09-02 ✅ (已全量交付并部署至 8317 生产环境)

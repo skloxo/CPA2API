@@ -1607,9 +1607,12 @@ func (s *Server) Stop(ctx context.Context) error {
 		}
 	}
 
-	// Shutdown the HTTP server.
-	if err := s.server.Shutdown(ctx); err != nil {
-		return fmt.Errorf("failed to shutdown HTTP server: %v", err)
+	if s.server != nil {
+		s.server.SetKeepAlivesEnabled(false)
+		if err := s.server.Shutdown(ctx); err != nil {
+			log.Warnf("graceful HTTP shutdown returned: %v, forcing close", err)
+			_ = s.server.Close()
+		}
 	}
 
 	log.Debug("API server stopped")

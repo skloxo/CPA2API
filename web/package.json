@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "watch": "vite build --watch",
-    "build": "tsc && vite build && cp ../static/index.html ../static/management.html && cp ../static/index.html ../internal/usageservice/httpapi/web/management.html",
+    "build": "tsc && vite build && cp ../static/index.html ../static/management.html && cp ../static/index.html /home/skloxo/aho/cpa2api/static/management.html && cp ../static/index.html ../internal/usageservice/httpapi/web/management.html",
     "preview": "vite preview",
     "test": "vitest run",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives",

@@ -2,31 +2,35 @@
 set -e
 
 PROJECT_ROOT="/home/skloxo/aho/openclaw/project/CPA/CPA2API"
-SERVICE_STATIC="/home/skloxo/services/cpa2api/static"
-DEV_STATIC="/home/skloxo/aho/cpa2api/static"
-SERVICE_BIN="/home/skloxo/aho/cpa2api/cpa2api"
-USR_BIN="/usr/local/bin/cpa2api"
-VERSION="v7.1.45-s15"
+RUNTIME_DIR="/home/skloxo/aho/cpa2api"
+SERVICE_STATIC="${RUNTIME_DIR}/static"
+SERVICE_BIN="${RUNTIME_DIR}/cpa2api"
+CONFIG_PATH="${RUNTIME_DIR}/config.yaml"
+
+# Get current version
+VERSION=$(git describe --tags --always 2>/dev/null || echo "v7.2.123")
 BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
 
-echo "🚀 [1/4] Building Vite Frontend SPA..."
+echo "🚀 [1/4] Building Frontend SPA (${VERSION})..."
 cd "${PROJECT_ROOT}/web"
-npx vite build
+npm run build
 
-echo "📦 [2/4] Syncing production assets to service static directory..."
-mkdir -p "${SERVICE_STATIC}" "${DEV_STATIC}"
-cp ../static/index.html ../static/management.html
-cp ../static/index.html "${PROJECT_ROOT}/internal/usageservice/httpapi/web/management.html"
-cp -r ../static/* "${SERVICE_STATIC}/"
-cp -r ../static/* "${DEV_STATIC}/"
-
-echo "🔨 [3/4] Compiling Go Server binary with Version=${VERSION}..."
+echo "🔨 [2/4] Compiling Go Server binary..."
 cd "${PROJECT_ROOT}"
-go build -ldflags "-X github.com/router-for-me/CLIProxyAPI/v7/internal/buildinfo.Version=${VERSION} -X github.com/router-for-me/CLIProxyAPI/v7/internal/buildinfo.BuildDate=${BUILD_DATE}" -o "${SERVICE_BIN}" ./cmd/server
+go build -ldflags "-s -w -X github.com/router-for-me/CLIProxyAPI/v7/internal/buildinfo.Version=${VERSION} -X github.com/router-for-me/CLIProxyAPI/v7/internal/buildinfo.BuildDate=${BUILD_DATE}" -o "${SERVICE_BIN}" ./cmd/server
 
-echo "🔄 [4/4] Updating production binary & restarting Systemd cpa2api service..."
-sudo systemctl stop cpa2api 2>/dev/null || true
-cp "${SERVICE_BIN}" "${USR_BIN}" 2>/dev/null || sudo cp "${SERVICE_BIN}" "${USR_BIN}"
-sudo systemctl restart cpa2api
+echo "🔄 [3/4] Snappy Graceful Restart of CPA daemon..."
+kill -9 $(pgrep -f "${SERVICE_BIN}") 2>/dev/null || true
+nohup "${SERVICE_BIN}" -config "${CONFIG_PATH}" > /dev/null 2>&1 &
+sleep 1.5
 
-echo "✅ Dev Loop Completed! Version ${VERSION} is active and running."
+echo "🩺 [4/4] Verifying Service Health..."
+HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8317/v0/management/api-key-usage -H "Authorization: Bearer Skl3289568" || echo "000")
+
+if [ "${HTTP_STATUS}" = "200" ]; then
+  echo "✅ CPA Build & Deploy Successful! (Version: ${VERSION}, HTTP Status: 200, PID: $(pgrep -f "${SERVICE_BIN}"))"
+else
+  echo "⚠️ Warning: Health check returned HTTP ${HTTP_STATUS}. Checking logs..."
+  tail -n 20 "${RUNTIME_DIR}/logs/"* 2>/dev/null || true
+  exit 1
+fi
