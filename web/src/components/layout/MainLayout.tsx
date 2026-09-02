@@ -33,7 +33,6 @@ import {
 } from '@/stores';
 import { triggerHeaderRefresh } from '@/hooks/useHeaderRefresh';
 import { useLocalStorage } from '@/hooks/useLocalStorage';
-import { useRequestMonitoringAvailability } from '@/hooks/useRequestMonitoringAvailability';
 import { LANGUAGE_LABEL_KEYS, LANGUAGE_ORDER } from '@/utils/constants';
 import { isSupportedLanguage } from '@/utils/language';
 import type { Theme } from '@/types';
@@ -220,7 +219,6 @@ export function MainLayout() {
   const config = useConfigStore((state) => state.config);
   const fetchConfig = useConfigStore((state) => state.fetchConfig);
   const clearCache = useConfigStore((state) => state.clearCache);
-  const requestMonitoringAvailability = useRequestMonitoringAvailability();
 
   const theme = useThemeStore((state) => state.theme);
   const setTheme = useThemeStore((state) => state.setTheme);
