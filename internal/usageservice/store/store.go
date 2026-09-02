@@ -975,3 +975,47 @@ func nullPositiveInt64(value int64) any {
 func (s Setup) String() string {
 	return fmt.Sprintf("upstream=%s queue=%s popSide=%s", s.CPAUpstreamURL, s.Queue, s.PopSide)
 }
+
+// ProviderAuthTotal holds aggregated success/failure counts for a single
+// (provider, auth_index) pair stored in usage_events.
+type ProviderAuthTotal struct {
+	Provider  string
+	AuthIndex string
+	Success   int64
+	Failed    int64
+}
+
+// ProviderAuthTotals returns per-(provider, auth_index) success/failure totals
+// from the usage_events table. Rows with a NULL provider or auth_index are skipped.
+// This enables the management API to return persistent provider stats that survive
+// process restarts, complementing the in-memory real-time counters.
+func (s *Store) ProviderAuthTotals(ctx context.Context) ([]ProviderAuthTotal, error) {
+	if s == nil || s.db == nil {
+		return nil, nil
+	}
+	const q = `
+		SELECT provider,
+		       auth_index,
+		       SUM(CASE WHEN failed = 0 THEN 1 ELSE 0 END) AS success,
+		       SUM(CASE WHEN failed = 1 THEN 1 ELSE 0 END) AS failed
+		FROM usage_events
+		WHERE auth_index IS NOT NULL
+		  AND auth_index != ''
+		  AND provider IS NOT NULL
+		  AND provider != ''
+		GROUP BY provider, auth_index`
+	rows, err := s.db.QueryContext(ctx, q)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ProviderAuthTotal
+	for rows.Next() {
+		var t ProviderAuthTotal
+		if err := rows.Scan(&t.Provider, &t.AuthIndex, &t.Success, &t.Failed); err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}

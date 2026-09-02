@@ -40,8 +40,10 @@ func mergeRecentRequestBuckets(dst, src []coreauth.RecentRequestBucket) []coreau
 	return dst
 }
 
-// GetAPIKeyUsage returns recent request buckets for all in-memory api_key auths,
-// grouped by provider and keyed by "base_url|api_key".
+// GetAPIKeyUsage returns request buckets for all api_key auths, grouped by provider
+// and keyed by "base_url|api_key". Success/Failed totals are the maximum of the
+// current in-memory counters and the persisted SQLite totals, so the numbers survive
+// process restarts without any data loss.
 func (h *Handler) GetAPIKeyUsage(c *gin.Context) {
 	if h == nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "handler not initialized"})
@@ -55,6 +57,10 @@ func (h *Handler) GetAPIKeyUsage(c *gin.Context) {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "core auth manager unavailable"})
 		return
 	}
+
+	// Load persisted SQLite totals keyed by auth_index. This is a best-effort
+	// read; on failure (nil map) we gracefully fall back to memory-only data.
+	sqliteTotals := h.loadSQLiteTotals(c.Request.Context())
 
 	now := time.Now()
 	out := make(map[string]map[string]apiKeyUsageEntry)
@@ -84,21 +90,40 @@ func (h *Handler) GetAPIKeyUsage(c *gin.Context) {
 		}
 
 		recent := auth.RecentRequestsSnapshot(now)
+
+		// Merge SQLite historical totals with in-memory counters.
+		// Strategy: take max(memory, sqlite) so that after a restart the
+		// SQLite value wins (memory=0), and during runtime the growing
+		// memory value naturally overtakes the stale sqlite snapshot.
+		memSuccess := auth.Success
+		memFailed := auth.Failed
+		if sqliteTotals != nil {
+			authIdx := auth.EnsureIndex()
+			if sq, ok := sqliteTotals[authIdx]; ok {
+				if sq.Success > memSuccess {
+					memSuccess = sq.Success
+				}
+				if sq.Failed > memFailed {
+					memFailed = sq.Failed
+				}
+			}
+		}
+
 		providerBucket, ok := out[provider]
 		if !ok {
 			providerBucket = make(map[string]apiKeyUsageEntry)
 			out[provider] = providerBucket
 		}
 		if existing, exists := providerBucket[compositeKey]; exists {
-			existing.Success += auth.Success
-			existing.Failed += auth.Failed
+			existing.Success += memSuccess
+			existing.Failed += memFailed
 			existing.RecentRequests = mergeRecentRequestBuckets(existing.RecentRequests, recent)
 			providerBucket[compositeKey] = existing
 			continue
 		}
 		providerBucket[compositeKey] = apiKeyUsageEntry{
-			Success:        auth.Success,
-			Failed:         auth.Failed,
+			Success:        memSuccess,
+			Failed:         memFailed,
 			RecentRequests: recent,
 		}
 	}

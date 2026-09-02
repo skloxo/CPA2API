@@ -3,6 +3,7 @@
 package management
 
 import (
+	"context"
 	"crypto/subtle"
 	"fmt"
 	"net/http"
@@ -15,6 +16,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/buildinfo"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/usageservice/store"
 	sdkAuth "github.com/router-for-me/CLIProxyAPI/v7/sdk/auth"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
 	log "github.com/sirupsen/logrus"
@@ -49,6 +51,7 @@ type Handler struct {
 	postAuthHook        coreauth.PostAuthHook
 	postConfigSaveHook  func()
 	bcryptCache         sync.Map // Cache for validated bcrypt passwords to avoid CPU spikes on polling
+	usageStore          *store.Store // optional: provides SQLite-backed provider stats across restarts
 }
 
 // NewHandler creates a new management handler instance.
@@ -132,6 +135,40 @@ func (h *Handler) SetAuthManager(manager *coreauth.Manager) {
 
 // SetLocalPassword configures the runtime-local password accepted for localhost requests.
 func (h *Handler) SetLocalPassword(password string) { h.localPassword = password }
+
+// SetStore injects the embedded usage-service SQLite store so that GetAPIKeyUsage
+// can overlay persistent historical totals on top of the in-memory counters.
+// Passing nil disables the SQLite overlay (falls back to memory-only behaviour).
+func (h *Handler) SetStore(s *store.Store) {
+	if h == nil {
+		return
+	}
+	h.mu.Lock()
+	h.usageStore = s
+	h.mu.Unlock()
+}
+
+// loadSQLiteTotals queries the usage store for per-(provider, auth_index) totals.
+// Returns nil map when the store is unavailable or the query fails.
+func (h *Handler) loadSQLiteTotals(ctx context.Context) map[string]store.ProviderAuthTotal {
+	h.mu.Lock()
+	s := h.usageStore
+	h.mu.Unlock()
+	if s == nil {
+		return nil
+	}
+	rows, err := s.ProviderAuthTotals(ctx)
+	if err != nil {
+		log.WithError(err).Warn("[management] failed to load SQLite provider totals")
+		return nil
+	}
+	m := make(map[string]store.ProviderAuthTotal, len(rows))
+	for _, r := range rows {
+		m[r.AuthIndex] = r
+	}
+	return m
+}
+
 
 // SetLogDirectory updates the directory where main.log should be looked up.
 func (h *Handler) SetLogDirectory(dir string) {

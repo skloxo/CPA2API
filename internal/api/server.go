@@ -388,6 +388,12 @@ func NewServer(cfg *config.Config, authManager *auth.Manager, accessManager *sdk
 	if optionState.postConfigSaveHook != nil {
 		s.mgmt.SetPostConfigSaveHook(optionState.postConfigSaveHook)
 	}
+	// Inject the embedded usage store so GetAPIKeyUsage can overlay SQLite
+	// historical provider totals on top of the in-memory counters, making
+	// provider stats survive process restarts.
+	if s.usageStore != nil {
+		s.mgmt.SetStore(s.usageStore)
+	}
 	s.localPassword = optionState.localPassword
 
 	// Home heartbeat gate: when home is enabled, block all endpoints with 503 until the
