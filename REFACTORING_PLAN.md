@@ -22,6 +22,22 @@
 
 ---
 
+### [x] [v7.2.120] - 2026-09-02 ✅ (已全量交付并部署至 8317 生产环境)
+- **Git Commit**: `4434c0bb` | **Git Tag**: `v7.2.120`
+- **实时监控滑动窗口升维至近 24 小时 (24-Hour Sliding Window & 24 Hourly Buckets)**：
+  1. **自然日完整周期覆盖**：将原先 200 分钟（20 格 × 10 分钟）滑动窗口升级为行业标杆级别的 **近 24 小时（24 格 × 1 小时）**，完美对齐全天 24 小时自然作息与调用节律；
+  2. **消除过窄窗口假死感**：彻底解决原先 3 小时无调用即全灰并显示 `--` 的痛点，24 小时窗口能够完整展示供应商全天的健康度曲线与活跃时段；
+  3. **整点小时标签清晰化**：Hover 时间切片从零碎的 `18:42-18:52` 优化为自解释的整点小时区间 `18:00-19:00`；
+  4. **前后端与测试全闭环**：同步调整 Go 后端环形缓冲区、React 前端单文件编译、单测断言与静态分发。
+- **修改文件**：
+  - `sdk/cliproxy/auth/types.go` & `types_test.go`：桶大小调整为 3600s，数量调整为 24
+  - `internal/api/handlers/management/*_test.go`：单测断言同步更新至 24 桶
+  - `web/src/utils/recentRequests.ts`：前端窗口参数同步至 24 格 × 1 小时
+  - `static/management.html` & `internal/usageservice/httpapi/web/management.html`：重新编译并同步分发 SPA 产物
+- **验证结果**：Go 单元测试 100% PASS；实时 API 与 `/management.html#/providers` 生产环境均已上线 24 格整点小时滑动窗口。
+
+---
+
 ### [x] [v7.2.119] - 2026-09-02 ✅ (已全量交付并部署至 8317 生产环境)
 - **Git Commit**: `85869ad4` | **Git Tag**: `v7.2.119`
 - **统计数据预聚合与生命周期滚动治理 (Daily Rollup Stats & Auto-Pruning TTL)**：
